@@ -51,18 +51,48 @@ export type PesananStatus =
   | "Dikembalikan"
   | "Menunggu Konfirmasi";
 
+/** Asal pesanan: offline (POS/kasir) atau commerce (toko online). */
+export type PesananAsal = "offline" | "commerce";
+
+/** Status pengiriman pesanan commerce (terpisah dari status utama). */
+export type StatusPengiriman = "Menunggu Kurir" | "Diantar" | "Selesai";
+
+/** Kurir yang memproses pengiriman (dari users, role kurir). */
+export interface KurirDTO {
+  id: number;
+  username: string;
+  fullName: string;
+  phone: string | null;
+  role: string;
+}
+
 export interface PesananItemDTO {
   id: number;
   produkId: number | null;
+  produkSatuanId: number | null;
+  satuanNama: string | null;
   namaProduk: string;
   qty: number;
   harga: number;
   subtotal: number;
 }
 
+/** Pelanggan ter-join (dari tabel pelanggan via pelanggan_id). */
+export interface PelangganRingkas {
+  id: number;
+  kode: string;
+  nama: string;
+  email: string | null;
+  telepon: string | null;
+  alamat: string | null;
+  kecamatan: string | null;
+  isMember: boolean;
+}
+
 export interface PesananDTO {
   id: number;
   noPesanan: string;
+  asal: PesananAsal;
   kasirNama: string;
   kasirUsername: string;
   status: PesananStatus;
@@ -75,13 +105,25 @@ export interface PesananDTO {
   total: number;
   uangDiterima: number;
   kembalian: number;
+  /** Cash in / out opsional dari POS (untuk laporan keuangan). */
+  cashIn: number | null;
+  cashOut: number | null;
   catatan: string | null;
   createdAt: string;
   items: PesananItemDTO[];
+  // Pelanggan commerce (opsional, dari JOIN pelanggan_id → pelanggan)
+  pelanggan: PelangganRingkas | null;
+  statusPengiriman: StatusPengiriman | null;
+  kurir: KurirDTO | null;
+  catatanPengiriman: string | null;
+  dikirimAt: string | null;
+  selesaiAt: string | null;
 }
 
 export interface CreatePesananItemInput {
   produkId?: number | null;
+  /** Satuan produk terpilih (produk_satuan.id) — utk mengurangi stok dari satuan yg benar. */
+  produkSatuanId?: number | null;
   namaProduk: string;
   qty: number;
   harga: number;
@@ -94,6 +136,18 @@ export interface CreatePesananInput {
   voucher?: string | null;
   uangDiterima?: number;
   catatan?: string | null;
+  // Asal & commerce (default offline). Commerce WAJIB pelangganId.
+  asal?: PesananAsal;
+  pelangganId?: number | null;
+  /** Cash in / out opsional dari POS. */
+  cashIn?: number | null;
+  cashOut?: number | null;
+}
+
+/** Update pengiriman commerce (assign kurir / ubah status). */
+export interface UpdatePengirimanInput {
+  kurirId?: number | null;
+  statusPengiriman?: StatusPengiriman;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +202,8 @@ export interface PesananProdukOption {
   nama: string;
   harga: number;      // harga satuan pertama (harga terkecil)
   stok: number;       // total stok (semua satuan)
+  /** Satuan produk utk dipilih saat menambah item pesanan. */
+  satuan: Array<{ produkSatuanId: number; satuanNama: string; harga: number }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +215,8 @@ export interface PesananListParams {
   pageSize?: number;
   search?: string;      // no_pesanan
   status?: string;
+  asal?: PesananAsal;
+  statusPengiriman?: string;
   dateFrom?: string;    // ISO date (YYYY-MM-DD)
   dateTo?: string;      // ISO date (YYYY-MM-DD)
   sortBy?: "no_pesanan" | "created_at" | "kasir_nama" | "total" | "metode_bayar";

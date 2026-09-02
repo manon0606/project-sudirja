@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     ? b.periodeKredit.trim()
     : null;
 
-  const items: Array<{ produkId?: number | null; namaProduk: string; qty: number; harga: number }> = [];
+  const items: Array<{ produkId?: number | null; produkSatuanId?: number | null; namaProduk: string; qty: number; harga: number }> = [];
   const details: Record<string, string> = {};
   b.items.forEach((raw, index) => {
     const r = (raw ?? {}) as Record<string, unknown>;
@@ -83,8 +83,15 @@ export async function POST(request: NextRequest) {
       details[label] = "Harga wajib angka >= 0.";
       return;
     }
+    const rawPs = r.produkSatuanId;
+    const produkSatuanId = typeof rawPs === "number" && Number.isInteger(rawPs) && rawPs > 0
+      ? rawPs
+      : typeof rawPs === "string" && rawPs
+        ? Number(rawPs)
+        : null;
     items.push({
       produkId: typeof r.produkId === "number" ? r.produkId : null,
+      produkSatuanId,
       namaProduk,
       qty,
       harga,
@@ -153,6 +160,14 @@ export async function POST(request: NextRequest) {
         voucher: typeof b.voucher === "string" && b.voucher.trim() ? b.voucher.trim() : null,
         uangDiterima,
         catatan: typeof b.catatan === "string" ? b.catatan.trim() : null,
+        // Cash in/out opsional dari POS (laporan keuangan).
+        cashIn: b.cashIn !== undefined && b.cashIn !== null && b.cashIn !== "" ? Number(b.cashIn) : undefined,
+        cashOut: b.cashOut !== undefined && b.cashOut !== null && b.cashOut !== "" ? Number(b.cashOut) : undefined,
+        // Asal: offline (default) / commerce. Commerce WAJIB pelangganId (dari master pelanggan).
+        asal: b.asal === "commerce" ? "commerce" : "offline",
+        pelangganId: b.pelangganId !== undefined && b.pelangganId !== null && b.pelangganId !== ""
+          ? Number(b.pelangganId)
+          : undefined,
       },
       kasir,
     );
@@ -161,6 +176,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && error.message.startsWith("VOUCHER_INVALID:")) {
       const message = error.message.slice("VOUCHER_INVALID:".length);
       return fail(422, "INVALID_VOUCHER", message);
+    }
+    const msg = error instanceof Error ? error.message : "";
+    if (msg === "PELANGGAN_REQUIRED") {
+      return fail(422, "VALIDATION_ERROR", "Pesanan commerce wajib memilih pelanggan dari daftar pelanggan.");
+    }
+    if (msg === "PELANGGAN_NOT_FOUND") {
+      return fail(422, "VALIDATION_ERROR", "Pelanggan terkait tidak ditemukan.");
     }
     console.error("[pesanan/create] error:", error);
     return fail(500, "INTERNAL_ERROR", "Terjadi kesalahan server. Coba lagi nanti.");

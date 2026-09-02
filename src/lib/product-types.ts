@@ -122,6 +122,8 @@ export type ProdukStatus = "active" | "inactive";
 
 /** One pricing/identity row per configured satuan. */
 export interface ProdukSatuanDTO {
+  /** produk_satuan.id — utk konsinyasi/pesanan mengurangi stok per satuan. */
+  id: number;
   satuanKode: string; // "SAT-001"
   satuanNama: string;
   jumlahUnit: number;

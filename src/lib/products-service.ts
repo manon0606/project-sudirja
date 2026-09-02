@@ -35,6 +35,7 @@ export function toKategoriDTO(row: { kode: string; nama: string; is_active: numb
 
 export function toProdukSatuanDTO(row: ProdukSatuanRow): ProdukSatuanDTO {
   return {
+    id: row.id,
     satuanKode: row.satuan_kode,
     satuanNama: row.satuan_nama,
     jumlahUnit: row.jumlah_unit,
@@ -346,6 +347,7 @@ export interface ProdukRow {
 }
 
 export interface ProdukSatuanRow {
+  id: number;
   satuan_kode: string;
   satuan_nama: string;
   jumlah_unit: number;
@@ -446,7 +448,7 @@ export async function getProdukBySku(sku: string): Promise<ProdukRow | null> {
 
 export async function getProdukSatuanByProdukId(produkId: number): Promise<ProdukSatuanRow[]> {
   const { rows } = await query<ProdukSatuanRow[]>(
-    `SELECT s.kode AS satuan_kode, s.nama AS satuan_nama, s.jumlah_unit,
+    `SELECT ps.id, s.kode AS satuan_kode, s.nama AS satuan_nama, s.jumlah_unit,
             ps.kode_item, ps.harga
      FROM produk_satuan ps
      JOIN satuan s ON s.id = ps.satuan_id
@@ -464,7 +466,7 @@ export async function getProdukSatuanByProdukIds(
   const map = new Map<number, ProdukSatuanRow[]>();
   if (produkIds.length === 0) return map;
   const { rows } = await query<(ProdukSatuanRow & { produk_id: number })[]>(
-    `SELECT ps.produk_id, s.kode AS satuan_kode, s.nama AS satuan_nama, s.jumlah_unit,
+    `SELECT ps.id, ps.produk_id, s.kode AS satuan_kode, s.nama AS satuan_nama, s.jumlah_unit,
             ps.kode_item, ps.harga
      FROM produk_satuan ps
      JOIN satuan s ON s.id = ps.satuan_id

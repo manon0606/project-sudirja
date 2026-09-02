@@ -8,7 +8,7 @@ type SidebarPage =
   | "dashboard" | "pesanan" | "daftar-pesanan" | "pesanan-kredit" | "pengembalian"
   | "produk" | "daftar-produk" | "kelola-satuan" | "kelola-merk" | "kelola-kategori"
   | "stok" | "promo" | "user" | "pembelian" | "konsinyasi" | "laporan"
-  | "pelanggan" | "commerce" | "pemetaan" | "settings";
+  | "pelanggan" | "supplier" | "commerce" | "pemetaan" | "settings";
 
 type MenuItem = {
   id: SidebarPage;
@@ -17,7 +17,7 @@ type MenuItem = {
   path?: string;
   children?: { id: SidebarPage; label: string; icon: IconName; path: string }[];
 };
-type IconName = "dashboard" | "shopping-cart" | "package" | "warehouse" | "tag" | "users" | "bag" | "handshake" | "file" | "users-round" | "store" | "map" | "settings" | "user-circle" | "logout" | "chevron-down" | "chevron-left" | "chevron-right" | "credit-card" | "rotate" | "award";
+type IconName = "dashboard" | "shopping-cart" | "package" | "warehouse" | "tag" | "users" | "bag" | "handshake" | "file" | "users-round" | "store" | "truck" | "map" | "settings" | "user-circle" | "logout" | "chevron-down" | "chevron-left" | "chevron-right" | "credit-card" | "rotate" | "award";
 
 const BASE = "/backoffice-sudirja";
 
@@ -32,6 +32,7 @@ const menu: MenuItem[] = [
   { id: "konsinyasi", label: "Konsinyasi", icon: "handshake", path: `${BASE}/konsinyasi` },
   { id: "laporan", label: "Laporan", icon: "file", path: `${BASE}/laporan` },
   { id: "pelanggan", label: "Pelanggan", icon: "users-round", path: `${BASE}/pelanggan` },
+  { id: "supplier", label: "Supplier", icon: "truck", path: `${BASE}/supplier` },
   { id: "commerce", label: "Commerce", icon: "store", path: `${BASE}/commerce` },
   { id: "pemetaan", label: "Pemetaan & Ongkir", icon: "map", path: `${BASE}/pemetaan` },
   { id: "settings", label: "Settings", icon: "settings", path: `${BASE}/settings` },
@@ -50,6 +51,7 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
     handshake: <><path {...common} d="m3 12 4-4 4 1 2-2 4 1 4 4-3 3-3-2-3 3-3-2-3 2-3-3Z" /><path {...common} d="m7 8 3 3M14 7l-3 4M18 8l-3 3" /></>,
     file: <><path {...common} d="M6 3h9l4 4v14H6V3Z" /><path {...common} d="M14 3v5h5M9 13h6M9 17h6" /></>,
     "users-round": <><circle {...common} cx="9" cy="8" r="3" /><path {...common} d="M3 20a6 6 0 0 1 12 0M16 4a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 6" /></>,
+    truck: <><path {...common} d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11" /><path {...common} d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2" /><circle {...common} cx="7" cy="18" r="2" /><circle {...common} cx="17" cy="18" r="2" /><path {...common} d="M9 18h6M5 14h8" /></>,
     store: <><path {...common} d="M4 10v11h16V10M3 10l2-6h14l2 6M3 10a3 3 0 0 0 5 0 3 3 0 0 0 5 0 3 3 0 0 0 5 0 3 3 0 0 0 5 0" /></>,
     map: <><path {...common} d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6ZM9 3v15M15 6v15" /></>,
     settings: <><circle {...common} cx="12" cy="12" r="3" /><path {...common} d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.1h-2.6V20a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H6v-2.6h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V5h2.6v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v2.6h-.1a1.7 1.7 0 0 0-1.6 1Z" /></>,

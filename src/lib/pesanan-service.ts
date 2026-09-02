@@ -8,6 +8,7 @@ import type {
   CreateReturInput,
   KreditDTO,
   KreditPembayaranDTO,
+  KurirDTO,
   PesananDTO,
   PesananItemDTO,
   PesananPaginationMeta,
@@ -15,10 +16,12 @@ import type {
   PesananStatus,
   ReturDTO,
   ReturItemDTO,
+  StatusPengiriman,
 } from "@/lib/pesanan-types";
 import { validatePromoVoucher } from "@/lib/promo-service";
 import { catatKomisiPesanan } from "@/lib/komisi-service";
 import { getUserByUsername } from "@/lib/user-service";
+import { getPelanggan } from "@/lib/pelanggan-service";
 
 // ---------------------------------------------------------------------------
 // DTO mappers
@@ -27,6 +30,8 @@ import { getUserByUsername } from "@/lib/user-service";
 export interface PesananRow {
   id: number;
   no_pesanan: string;
+  asal_pesanan: "offline" | "commerce";
+  pelanggan_id: number | null;
   kasir_nama: string;
   kasir_username: string;
   status: PesananStatus;
@@ -39,14 +44,75 @@ export interface PesananRow {
   total: number | string;
   uang_diterima: number | string;
   kembalian: number | string;
+  cash_in: number | string | null;
+  cash_out: number | string | null;
   catatan: string | null;
   created_at: Date;
+  status_pengiriman: "Menunggu Kurir" | "Diantar" | "Selesai" | null;
+  kurir_id: number | null;
+  catatan_pengiriman: string | null;
+  dikirim_at: Date | null;
+  selesai_at: Date | null;
+  // Pelanggan ter-join (LEFT JOIN pelanggan)
+  pel_kode: string | null;
+  pel_nama: string | null;
+  pel_email: string | null;
+  pel_telepon: string | null;
+  pel_alamat: string | null;
+  pel_kecamatan: string | null;
+  pel_is_member: number | null;
+  // Kurir ter-join (LEFT JOIN users)
+  kurir_username: string | null;
+  kurir_full_name: string | null;
+  kurir_phone: string | null;
 }
 
-export function toPesananDTO(row: PesananRow, items: PesananItemDTO[]): PesananDTO {
+interface KurirRow extends RowDataPacket {
+  id: number;
+  username: string;
+  full_name: string;
+  phone: string | null;
+  role: string;
+}
+
+export async function getKurirById(id: number | null): Promise<KurirDTO | null> {
+  if (!id) return null;
+  const { rows } = await query<KurirRow[]>(
+    `SELECT id, username, full_name, phone, role FROM users WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  const r = rows[0];
+  return r ? { id: r.id, username: r.username, fullName: r.full_name, phone: r.phone, role: r.role } : null;
+}
+
+const KURIR_ROLE = "kurir";
+
+/** Daftar user ber-role kurir (aktif) — untuk dipilih saat memproses pengiriman. */
+export async function listKurir(): Promise<KurirDTO[]> {
+  const { rows } = await query<KurirRow[]>(
+    `SELECT id, username, full_name, phone, role FROM users WHERE role = ? AND is_active = 1 ORDER BY full_name ASC`,
+    [KURIR_ROLE],
+  );
+  return rows.map((r) => ({ id: r.id, username: r.username, fullName: r.full_name, phone: r.phone, role: r.role }));
+}
+
+export function toPesananDTO(row: PesananRow, items: PesananItemDTO[], kurir?: KurirDTO | null): PesananDTO {
+  const pelanggan = row.pelanggan_id && row.pel_nama
+    ? {
+        id: row.pelanggan_id,
+        kode: row.pel_kode ?? "",
+        nama: row.pel_nama,
+        email: row.pel_email,
+        telepon: row.pel_telepon,
+        alamat: row.pel_alamat,
+        kecamatan: row.pel_kecamatan,
+        isMember: row.pel_is_member === 1,
+      }
+    : null;
   return {
     id: row.id,
     noPesanan: row.no_pesanan,
+    asal: row.asal_pesanan,
     kasirNama: row.kasir_nama,
     kasirUsername: row.kasir_username,
     status: row.status,
@@ -59,15 +125,25 @@ export function toPesananDTO(row: PesananRow, items: PesananItemDTO[]): PesananD
     total: Number(row.total),
     uangDiterima: Number(row.uang_diterima),
     kembalian: Number(row.kembalian),
+    cashIn: row.cash_in == null ? null : Number(row.cash_in),
+    cashOut: row.cash_out == null ? null : Number(row.cash_out),
     catatan: row.catatan,
     createdAt: row.created_at.toISOString(),
     items,
+    pelanggan,
+    statusPengiriman: row.status_pengiriman,
+    kurir: kurir ?? (row.kurir_full_name ? { id: row.kurir_id as number, username: row.kurir_username ?? "", fullName: row.kurir_full_name, phone: row.kurir_phone, role: "kurir" } : null),
+    catatanPengiriman: row.catatan_pengiriman,
+    dikirimAt: row.dikirim_at ? (row.dikirim_at instanceof Date ? row.dikirim_at.toISOString() : new Date(row.dikirim_at).toISOString()) : null,
+    selesaiAt: row.selesai_at ? (row.selesai_at instanceof Date ? row.selesai_at.toISOString() : new Date(row.selesai_at).toISOString()) : null,
   };
 }
 
 export function toPesananItemDTO(row: {
   id: number;
   produk_id: number | null;
+  produk_satuan_id?: number | null;
+  satuan_nama?: string | null;
   nama_produk: string;
   qty: number;
   harga: number | string;
@@ -76,6 +152,8 @@ export function toPesananItemDTO(row: {
   return {
     id: row.id,
     produkId: row.produk_id,
+    produkSatuanId: row.produk_satuan_id ?? null,
+    satuanNama: row.satuan_nama ?? null,
     namaProduk: row.nama_produk,
     qty: row.qty,
     harga: Number(row.harga),
@@ -133,17 +211,30 @@ const PESANAN_SORT_COLUMNS: Record<string, string> = {
   metode_bayar: "p.metode_bayar",
 };
 
+/** SELECT pesanan + LEFT JOIN pelanggan & kurir (utk DTO lengkap). */
+const PESANAN_SELECT = `
+  SELECT p.*,
+         pg.kode AS pel_kode, pg.nama AS pel_nama, pg.email AS pel_email,
+         pg.telepon AS pel_telepon, pg.alamat AS pel_alamat,
+         pg.kecamatan AS pel_kecamatan, pg.is_member AS pel_is_member,
+         u.username AS kurir_username, u.full_name AS kurir_full_name, u.phone AS kurir_phone
+  FROM pesanan p
+  LEFT JOIN pelanggan pg ON pg.id = p.pelanggan_id
+  LEFT JOIN users u ON u.id = p.kurir_id`;
+
 export function parsePesananListParams(params: URLSearchParams) {
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(params.get("pageSize")) || 10));
   const search = (params.get("search") ?? "").trim().slice(0, 50);
   const status = (params.get("status") ?? "").trim();
+  const asal = (params.get("asal") ?? "").trim();
+  const statusPengiriman = (params.get("statusPengiriman") ?? "").trim();
   const dateFrom = (params.get("dateFrom") ?? "").trim();
   const dateTo = (params.get("dateTo") ?? "").trim();
   const sortByRaw = params.get("sortBy") ?? "created_at";
   const sortBy = sortByRaw in PESANAN_SORT_COLUMNS ? sortByRaw : "created_at";
   const sortOrder = params.get("sortOrder") === "asc" ? "asc" : "desc";
-  return { page, pageSize, search, status, dateFrom, dateTo, sortBy, sortOrder };
+  return { page, pageSize, search, status, asal, statusPengiriman, dateFrom, dateTo, sortBy, sortOrder };
 }
 
 function buildMeta(total: number, page: number, pageSize: number): PesananPaginationMeta {
@@ -162,6 +253,14 @@ export async function listPesanan(
   if (opts.status) {
     where.push("p.status = ?");
     params.push(opts.status);
+  }
+  if (opts.asal === "offline" || opts.asal === "commerce") {
+    where.push("p.asal_pesanan = ?");
+    params.push(opts.asal);
+  }
+  if (opts.statusPengiriman) {
+    where.push("p.status_pengiriman = ?");
+    params.push(opts.statusPengiriman);
   }
   if (opts.dateFrom) {
     where.push("p.created_at >= ?");
@@ -183,7 +282,7 @@ export async function listPesanan(
   const dir = opts.sortOrder === "asc" ? "ASC" : "DESC";
   const offset = (opts.page - 1) * opts.pageSize;
   const { rows } = await query<PesananRow[]>(
-    `SELECT p.* FROM pesanan p
+    `${PESANAN_SELECT}
      ${whereSql}
      ORDER BY ${sortColumn} ${dir}, p.id ${dir}
      LIMIT ? OFFSET ?`,
@@ -196,9 +295,13 @@ export async function listPesanan(
   // Load items for all rows in one query (avoid N+1).
   const ids = rows.map((r) => r.id);
   const itemResult = await query<RowDataPacket[]>(
-    `SELECT id, produk_id, nama_produk, qty, harga, subtotal
-     FROM pesanan_item WHERE pesanan_id IN (${ids.map(() => "?").join(",")})
-     ORDER BY id ASC`,
+    `SELECT pi.id, pi.produk_id, pi.produk_satuan_id, s.nama AS satuan_nama,
+            pi.nama_produk, pi.qty, pi.harga, pi.subtotal
+     FROM pesanan_item pi
+     LEFT JOIN produk_satuan ps ON ps.id = pi.produk_satuan_id
+     LEFT JOIN satuan s ON s.id = ps.satuan_id
+     WHERE pi.pesanan_id IN (${ids.map(() => "?").join(",")})
+     ORDER BY pi.id ASC`,
     ids,
   );
   const byOrder = new Map<number, PesananItemDTO[]>();
@@ -209,8 +312,8 @@ export async function listPesanan(
     byOrder.set(Number(r.pesanan_id), list);
   }
 
-  const items = rows.map((row) => toPesananDTO(row, byOrder.get(row.id) ?? []));
-  return { items, pagination: buildMeta(total, opts.page, opts.pageSize) };
+  const finalItems = rows.map((row) => toPesananDTO(row, byOrder.get(row.id) ?? []));
+  return { items: finalItems, pagination: buildMeta(total, opts.page, opts.pageSize) };
 }
 
 // ---------------------------------------------------------------------------
@@ -218,12 +321,16 @@ export async function listPesanan(
 // ---------------------------------------------------------------------------
 
 export async function getPesananByNo(noPesanan: string): Promise<PesananDTO | null> {
-  const { rows } = await query<PesananRow[]>(`SELECT p.* FROM pesanan p WHERE p.no_pesanan = ? LIMIT 1`, [noPesanan]);
+  const { rows } = await query<PesananRow[]>(`${PESANAN_SELECT} WHERE p.no_pesanan = ? LIMIT 1`, [noPesanan]);
   const row = rows[0];
   if (!row) return null;
   const { rows: itemRows } = await query<RowDataPacket[]>(
-    `SELECT id, produk_id, nama_produk, qty, harga, subtotal
-     FROM pesanan_item WHERE pesanan_id = ? ORDER BY id ASC`,
+    `SELECT pi.id, pi.produk_id, pi.produk_satuan_id, s.nama AS satuan_nama,
+            pi.nama_produk, pi.qty, pi.harga, pi.subtotal
+     FROM pesanan_item pi
+     LEFT JOIN produk_satuan ps ON ps.id = pi.produk_satuan_id
+     LEFT JOIN satuan s ON s.id = ps.satuan_id
+     WHERE pi.pesanan_id = ? ORDER BY pi.id ASC`,
     [row.id],
   );
   return toPesananDTO(row, (itemRows as RowDataPacket[]).map((r) => toPesananItemDTO(r as never)));
@@ -286,15 +393,37 @@ export async function createPesananTx(
     const uangDiterima = input.uangDiterima ?? 0;
     const kembalian = metodeBayarTunai(input.metodeBayar) ? Math.max(0, uangDiterima - total) : 0;
 
+    // Asal pesanan & relasi pelanggan commerce.
+    const asal = input.asal === "commerce" ? "commerce" : "offline";
+    const isCommerce = asal === "commerce";
+    // Commerce: status utama 'Diproses' + status_pengiriman terpisah 'Menunggu Kurir'.
+    const statusUtama: PesananStatus = isCommerce ? "Diproses" : "Selesai";
+
+    // Commerce WAJIB terkait pelanggan dari master (pelanggan_id), bukan input bebas.
+    let pelangganId: number | null = null;
+    if (isCommerce) {
+      if (input.pelangganId == null || !Number.isInteger(input.pelangganId)) {
+        throw new Error("PELANGGAN_REQUIRED");
+      }
+      // Validasi pelanggan terdaftar di master.
+      const existing = await getPelanggan(input.pelangganId);
+      if (!existing) throw new Error("PELANGGAN_NOT_FOUND");
+      pelangganId = existing.id;
+    }
+
     const [result] = await conn.query<ResultSetHeader>(
       `INSERT INTO pesanan
-        (no_pesanan, kasir_nama, kasir_username, status, metode_bayar, periode_kredit,
-         voucher, diskon_persen, subtotal, diskon_amount, total, uang_diterima, kembalian, catatan)
-       VALUES (?, ?, ?, 'Selesai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (no_pesanan, asal_pesanan, pelanggan_id, kasir_nama, kasir_username, status, metode_bayar, periode_kredit,
+         voucher, diskon_persen, subtotal, diskon_amount, total, uang_diterima, kembalian, catatan,
+         cash_in, cash_out, status_pengiriman, catatan_pengiriman)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         generated,
+        asal,
+        pelangganId,
         kasir.nama,
         kasir.username,
+        statusUtama,
         input.metodeBayar,
         input.periodeKredit ?? null,
         voucherKode,
@@ -305,6 +434,10 @@ export async function createPesananTx(
         uangDiterima,
         kembalian,
         input.catatan?.slice(0, 255) || null,
+        input.cashIn != null && Number.isFinite(Number(input.cashIn)) ? Number(input.cashIn) : null,
+        input.cashOut != null && Number.isFinite(Number(input.cashOut)) ? Number(input.cashOut) : null,
+        isCommerce ? "Menunggu Kurir" : null,
+        null,
       ],
     );
 
@@ -344,11 +477,44 @@ export async function createPesananTx(
 
     for (const it of input.items) {
       const produkId = typeof it.produkId === "number" && validIds.has(it.produkId) ? it.produkId : null;
+      // Satuan yg dipilih di form pesanan (produk_satuan_id) — dipakai utk
+      // mengurangi stok dari satuan yg benar & mencatat nama satuan snapshot.
+      let produkSatuanId: number | null = null;
+      let satuanNama: string | null = null;
+      const rawPsId = it.produkSatuanId;
+      if (rawPsId && Number.isInteger(Number(rawPsId)) && Number(rawPsId) > 0) {
+        const psIdNum = Number(rawPsId);
+        // Pastikan satuan milik produk ini (bila produkId diketahui).
+        const psWhere = produkId != null ? "ps.id = ? AND ps.produk_id = ?" : "ps.id = ?";
+        const psArgs = produkId != null ? [psIdNum, produkId] : [psIdNum];
+        const [psRows] = await conn.query<RowDataPacket[]>(
+          `SELECT ps.id, s.nama AS satuan_nama FROM produk_satuan ps JOIN satuan s ON s.id = ps.satuan_id WHERE ${psWhere} LIMIT 1`,
+          psArgs,
+        );
+        const ps = psRows[0] as { id: number; satuan_nama: string } | undefined;
+        if (ps) {
+          produkSatuanId = ps.id;
+          satuanNama = ps.satuan_nama;
+        }
+      }
       await conn.query(
-        `INSERT INTO pesanan_item (pesanan_id, produk_id, nama_produk, qty, harga, subtotal)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [result.insertId, produkId, it.namaProduk, it.qty, it.harga, it.harga * it.qty],
+        `INSERT INTO pesanan_item (pesanan_id, produk_id, produk_satuan_id, nama_produk, qty, harga, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [result.insertId, produkId, produkSatuanId, it.namaProduk, it.qty, it.harga, it.harga * it.qty],
       );
+
+      // Kurangi stok dari satuan terpilih (bila ada & produk dikenal).
+      if (produkSatuanId != null) {
+        await mutasiStokPesanan(conn, produkSatuanId, it.qty, `${generated} — jual ${it.namaProduk} (${satuanNama ?? ""})`);
+      } else if (produkId != null) {
+        // Fallback legacy (tanpa satuan): kurangi dari satuan stok > 0 (FIFO per satuan).
+        await kurangiStokProdukOtomatis(conn, produkId, it.qty, `${generated} — jual ${it.namaProduk}`);
+      }
+
+      // Catat qty terjual ke konsinyasi AKTIF utk produk ini (first-in) bila ada.
+      if (produkId != null) {
+        await catatTerjualKonsinyasi(conn, produkId, produkSatuanId, it.qty, generated);
+      }
     }
 
     return generated;
@@ -356,6 +522,71 @@ export async function createPesananTx(
   // Baca ulang SETELAH commit — di dalam transaksi, koneksi pool lain bisa
   // membaca state pre-commit sehingga hasil tampak null/tidak berubah.
   return getPesananByNo(noPesanan);
+}
+
+/** Kurangi qty stok satuan (pastikan tidak negatif) + catat history. */
+async function mutasiStokPesanan(conn: PoolConnection, produkSatuanId: number, qty: number, catatan: string): Promise<void> {
+  if (qty <= 0) return;
+  const [stokRows] = await conn.query<RowDataPacket[]>(
+    `SELECT id, qty FROM stok WHERE produk_satuan_id = ? LIMIT 1`,
+    [produkSatuanId],
+  );
+  let stok = stokRows[0] as { id: number; qty: number } | undefined;
+  if (!stok) return; // tak ada stok utk satuan ini → biarkan (pesanan tetap jalan)
+  const delta = -Math.min(qty, stok.qty);
+  if (delta === 0) return;
+  const qtyBaru = stok.qty + delta;
+  await conn.query(`UPDATE stok SET qty = ? WHERE id = ?`, [qtyBaru, stok.id]);
+  await conn.query(
+    `INSERT INTO stok_history (stok_id, tipe, qty_delta, qty_sebelum, qty_sesudah, catatan)
+     VALUES (?, 'out', ?, ?, ?, ?)`,
+    [stok.id, delta, stok.qty, qtyBaru, catatan.slice(0, 255)],
+  );
+}
+
+/** Legacy tanpa satuan: kurangi dari satuan2 produk yg punya stok (FIFO by harga). */
+async function kurangiStokProdukOtomatis(conn: PoolConnection, produkId: number, qty: number, catatan: string): Promise<void> {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT ps.id, COALESCE(st.qty, 0) AS qty
+     FROM produk_satuan ps
+     LEFT JOIN stok st ON st.produk_satuan_id = ps.id
+     WHERE ps.produk_id = ? ORDER BY ps.harga ASC, ps.id ASC`,
+    [produkId],
+  );
+  let sisa = qty;
+  for (const r of rows as Array<{ id: number; qty: number }>) {
+    if (sisa <= 0) break;
+    const ambil = Math.min(sisa, r.qty);
+    if (ambil > 0) {
+      await mutasiStokPesanan(conn, r.id, ambil, catatan);
+      sisa -= ambil;
+    }
+  }
+}
+
+/** Catat qty terjual ke konsinyasi aktif (first-in) utk produk & satuan tsb. */
+async function catatTerjualKonsinyasi(conn: PoolConnection, produkId: number, produkSatuanId: number | null, qty: number, noPesanan: string): Promise<void> {
+  if (qty <= 0) return;
+  // Konsinyasi aktif yg itemnya memuat produk ini (dan satuan cocok bila ada).
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT ki.id, ki.qty_konsinyasi, ki.qty_terjual, ki.qty_dikembalikan, k.no_konsinyasi
+     FROM konsinyasi_item ki
+     JOIN konsinyasi k ON k.id = ki.konsinyasi_id AND k.status = 'aktif'
+     WHERE ki.produk_id = ?
+       AND (ki.produk_satuan_id = ? OR (? IS NULL AND ki.produk_satuan_id IS NULL))
+     ORDER BY k.tanggal ASC, k.id ASC`,
+    [produkId, produkSatuanId, produkSatuanId],
+  );
+  let sisa = qty;
+  for (const r of rows as Array<{ id: number; qty_konsinyasi: number; qty_terjual: number; qty_dikembalikan: number; no_konsinyasi: string }>) {
+    if (sisa <= 0) break;
+    const sisaKuota = Math.max(0, r.qty_konsinyasi - r.qty_terjual - r.qty_dikembalikan);
+    const catat = Math.min(sisa, sisaKuota);
+    if (catat > 0) {
+      await conn.query(`UPDATE konsinyasi_item SET qty_terjual = qty_terjual + ? WHERE id = ?`, [catat, r.id]);
+      sisa -= catat;
+    }
+  }
 }
 
 function metodeBayarTunai(metode: string): boolean {
@@ -449,12 +680,31 @@ export async function searchPesananProduk(
      LIMIT ?`,
     [...params, Math.min(50, Math.max(1, limit))],
   );
-  return (rows as RowDataPacket[]).map((r) => ({
+  const base = rows as Array<{ produk_id: number; sku: string; nama: string; harga: number; stok: number }>;
+  // Load satuan utk semua produk hasil (sekali query).
+  const ids = base.map((r) => r.produk_id);
+  const satuanMap = new Map<number, Array<{ produkSatuanId: number; satuanNama: string; harga: number }>>();
+  if (ids.length) {
+    const { rows: satRows } = await query<RowDataPacket[]>(
+      `SELECT ps.id AS ps_id, ps.produk_id AS pid, s.nama AS satuan_nama, ps.harga
+       FROM produk_satuan ps JOIN satuan s ON s.id = ps.satuan_id
+       WHERE ps.produk_id IN (${ids.map(() => "?").join(",")})
+       ORDER BY ps.id ASC`,
+      ids,
+    );
+    for (const r of satRows as Array<{ ps_id: number; pid: number; satuan_nama: string; harga: number }>) {
+      const list = satuanMap.get(r.pid) ?? [];
+      list.push({ produkSatuanId: Number(r.ps_id), satuanNama: r.satuan_nama, harga: Number(r.harga) });
+      satuanMap.set(r.pid, list);
+    }
+  }
+  return base.map((r) => ({
     produkId: Number(r.produk_id),
     sku: r.sku as string,
     nama: r.nama as string,
     harga: Number(r.harga),
     stok: Number(r.stok),
+    satuan: satuanMap.get(Number(r.produk_id)) ?? [],
   }));
 }
 
@@ -699,6 +949,63 @@ export async function listRetur(
     ),
   );
   return { items, pagination: buildMeta(total, opts.page, opts.pageSize) };
+}
+
+// ---------------------------------------------------------------------------
+// Commerce — proses pengiriman (assign kurir & ubah status pengiriman)
+// ---------------------------------------------------------------------------
+
+/**
+ * Assign kurir / ubah status pengiriman untuk pesanan commerce.
+ * - kurirId diberikan & status menjadi 'Diantar' (atau status yang diminta)
+ * - status 'Selesai' → set selesai_at
+ * Hanya berlaku utk pesanan asal='commerce'.
+ */
+export async function updatePengirimanPesanan(
+  noPesanan: string,
+  input: { kurirId?: number | null; statusPengiriman?: StatusPengiriman },
+): Promise<PesananDTO | null> {
+  const pesanan = await getPesananByNo(noPesanan);
+  if (!pesanan) return null;
+  if (pesanan.asal !== "commerce") throw new Error("NOT_COMMERCE");
+
+  const sets: string[] = [];
+  const args: unknown[] = [];
+
+  if (input.kurirId !== undefined) {
+    // Validasi kurir adalah user aktif role kurir.
+    const kurir = await getKurirById(input.kurirId);
+    if (input.kurirId != null && (!kurir || kurir.role !== "kurir")) throw new Error("INVALID_KURIR");
+    sets.push("kurir_id = ?");
+    args.push(input.kurirId ?? null);
+  }
+
+  if (input.statusPengiriman !== undefined) {
+    sets.push("status_pengiriman = ?");
+    args.push(input.statusPengiriman);
+    // Transisi otomatis status utama & timestamp.
+    if (input.statusPengiriman === "Diantar") {
+      sets.push("dikirim_at = NOW()");
+      sets.push("status = 'Diproses'");
+    } else if (input.statusPengiriman === "Selesai") {
+      sets.push("selesai_at = NOW()");
+      sets.push("status = 'Selesai'");
+    } else if (input.statusPengiriman === "Menunggu Kurir") {
+      sets.push("kurir_id = NULL");
+      sets.push("dikirim_at = NULL");
+      sets.push("selesai_at = NULL");
+      sets.push("status = 'Diproses'");
+    }
+  } else if (input.kurirId !== undefined && input.kurirId != null) {
+    // Assign kurir tanpa status eksplisit → otomatis Diantar.
+    sets.push("status_pengiriman = 'Diantar'");
+    sets.push("dikirim_at = NOW()");
+    sets.push("status = 'Diproses'");
+  }
+
+  if (sets.length === 0) return pesanan;
+  await execute(`UPDATE pesanan SET ${sets.join(", ")} WHERE no_pesanan = ?`, [...args, noPesanan]);
+  return getPesananByNo(noPesanan);
 }
 
 export { execute };

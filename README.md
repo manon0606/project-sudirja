@@ -1,36 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sudirja Next — Admin Backoffice
 
-## Getting Started
+Sistem administrasi toko Sudirja (Next.js App Router + MySQL). Berisi portal
+admin lengkap: pesanan, produk, stok, promo, user/role/ACL/komisi, pembelian,
+konsinyasi, laporan keuangan, pelanggan, supplier, commerce (pesanan online +
+kurir), pemetaan ongkir, dan settings API key POS.
 
-First, run the development server:
+## Mulai
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
+# Buka http://localhost:3000/backoffice-sudirja/login
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Sesuaikan kredensial DB di `.env.local` (contoh: `MYSQL_DATABASE=web_sudirja`).
+- Jalankan migrasi SQL di `db/migrations/` secara berurutan terhadap DB tsb.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Dokumentasi
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **[docs/ADMIN_FEATURES.md](docs/ADMIN_FEATURES.md)** — ringkasan semua fitur
+  admin, menu, konsistensi UI tombol aksi, integrasi antar fitur, dan ACL.
+- **[docs/ADMIN_API.md](docs/ADMIN_API.md)** — dokumentasi API lengkap seluruh
+  modul (auth, pesanan, produk, stok, promo, user/role/komisi, supplier,
+  pelanggan, ongkir, konsinyasi, pembelian, laporan, settings).
 
-## Learn More
+## Struktur singkat
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/app/backoffice-sudirja/   # halaman & komponen UI admin
+src/app/api/backoffice-sudirja/ # route handler (API)
+src/lib/                        # service + types + client api per modul
+db/migrations/                  # skema database (SQL)
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Konvensi
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Envelope API: `{ ok: true, data }` / `{ ok: false, error: { code, message } }`.
+- Semua endpoint admin butuh sesi login (cookie `sudirja_admin_session`);
+  `POST /pesanan` juga menerima API key POS (`X-API-Key`) saat mode online.
+- UI tombol aksi header memakai komponen shared `ActionButtons.tsx` agar
+  konsisten (Export outline hijau `px-5 py-3`, Tambah solid hijau `px-6 py-3`).

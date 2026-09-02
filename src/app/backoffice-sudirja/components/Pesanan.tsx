@@ -9,6 +9,8 @@ import {
   searchPesananProduk,
 } from "@/lib/pesanan-api";
 import { validatePromoVoucher } from "@/lib/promo-api";
+import { listPelanggan } from "@/lib/pelanggan-api";
+import type { PelangganDTO } from "@/lib/pelanggan-types";
 import type { PesananDTO, PesananProdukOption } from "@/lib/pesanan-types";
 import {
   Search, Calendar, ArrowUpDown, ArrowUp, ArrowDown,
@@ -1223,6 +1225,9 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedItems, setSelectedItems] = useState<Array<{
     produkId: number | null;
+    produkSatuanId: number | null;
+    satuanNama: string | null;
+    satuanOptions: Array<{ produkSatuanId: number; satuanNama: string; harga: number }>;
     name: string;
     price: number;
     quantity: number;
@@ -1239,6 +1244,42 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
   const [searching, setSearching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  // Tipe pesanan: offline (POS, default) / commerce (toko online).
+  const [orderType, setOrderType] = useState<"offline" | "commerce">("offline");
+  // Pelanggan terpilih (dari master pelanggan) — wajib utk commerce.
+  const [selectedPelanggan, setSelectedPelanggan] = useState<PelangganDTO | null>(null);
+  const [pelangganQuery, setPelangganQuery] = useState("");
+  const [pelangganResults, setPelangganResults] = useState<PelangganDTO[]>([]);
+  const [showPelangganResults, setShowPelangganResults] = useState(false);
+  const [pelangganSearching, setPelangganSearching] = useState(false);
+
+  // Cari pelanggan dari master (utk tipe commerce) — debounce.
+  useEffect(() => {
+    if (orderType !== "commerce") {
+      setPelangganResults([]);
+      return;
+    }
+    if (!pelangganQuery.trim()) {
+      setPelangganResults([]);
+      return;
+    }
+    let cancelled = false;
+    setPelangganSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await listPelanggan({ search: pelangganQuery.trim(), pageSize: 8 });
+        if (!cancelled) setPelangganResults(result.items);
+      } catch {
+        if (!cancelled) setPelangganResults([]);
+      } finally {
+        if (!cancelled) setPelangganSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [pelangganQuery, orderType]);
 
   // Cari produk dari API (debounce sederhana per ketikan).
   useEffect(() => {
@@ -1314,16 +1355,35 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
         )
       );
     } else {
-      // Add new item
+      // Add new item — default satuan pertama (harga terkecil).
+      const defSat = product.satuan[0] ?? null;
       setSelectedItems([...selectedItems, {
         produkId: product.produkId,
+        produkSatuanId: defSat ? defSat.produkSatuanId : null,
+        satuanNama: defSat ? defSat.satuanNama : null,
+        satuanOptions: product.satuan,
         name: product.nama,
-        price: product.harga,
+        price: defSat ? defSat.harga : product.harga,
         quantity: 1
       }]);
     }
     setSearchQuery("");
     setShowSearchResults(false);
+  };
+
+  const handleChangeSatuan = (produkId: number | null, psId: number) => {
+    setSelectedItems(items =>
+      items.map(item => {
+        if (item.produkId !== produkId) return item;
+        const opt = item.satuanOptions.find(o => o.produkSatuanId === psId);
+        return {
+          ...item,
+          produkSatuanId: psId,
+          satuanNama: opt ? opt.satuanNama : item.satuanNama,
+          price: opt ? opt.harga : item.price,
+        };
+      })
+    );
   };
 
   const handleIncreaseQuantity = (produkId: number | null) => {
@@ -1356,9 +1416,15 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
     setSubmitting(true);
     setSubmitError("");
     try {
+      if (orderType === "commerce" && !selectedPelanggan) {
+        setSubmitError("Pilih pelanggan terlebih dahulu untuk pesanan commerce.");
+        setSubmitting(false);
+        return;
+      }
       await createPesanan({
         items: selectedItems.map(i => ({
           produkId: i.produkId,
+          produkSatuanId: i.produkSatuanId,
           namaProduk: i.name,
           qty: i.quantity,
           harga: i.price,
@@ -1368,6 +1434,8 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
           : paymentMethod,
         periodeKredit: paymentMethod === "Kredit" ? kreditPeriod || null : null,
         voucher: voucherCode || null,
+        asal: orderType,
+        pelangganId: orderType === "commerce" ? selectedPelanggan!.id : undefined,
       });
       setShowReceipt(true);
     } catch (err) {
@@ -1403,6 +1471,131 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
         {/* Content */}
         <div className="overflow-y-auto max-h-[calc(90vh-160px)] px-6 py-4">
           <div className="space-y-6">
+            {/* Tipe Pesanan */}
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>
+                Tipe Pesanan
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setOrderType("offline"); setSelectedPelanggan(null); setPelangganQuery(""); }}
+                  className="p-4 rounded-lg border-2 transition-colors text-left"
+                  style={{
+                    borderColor: orderType === "offline" ? '#27b446' : '#e5e7eb',
+                    backgroundColor: orderType === "offline" ? 'rgba(39, 180, 70, 0.04)' : 'white'
+                  }}
+                >
+                  <p className="font-medium flex items-center gap-2" style={{ color: '#000000' }}>
+                    🏪 Offline / POS
+                  </p>
+                  <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+                    Pesanan langsung di kasir/toko
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrderType("commerce")}
+                  className="p-4 rounded-lg border-2 transition-colors text-left"
+                  style={{
+                    borderColor: orderType === "commerce" ? '#27b446' : '#e5e7eb',
+                    backgroundColor: orderType === "commerce" ? 'rgba(39, 180, 70, 0.04)' : 'white'
+                  }}
+                >
+                  <p className="font-medium flex items-center gap-2" style={{ color: '#000000' }}>
+                    🛒 Commerce / Online
+                  </p>
+                  <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+                    Pesanan dari toko online (wajib pelanggan)
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Pilih Pelanggan (commerce) */}
+            {orderType === "commerce" && (
+              <div>
+                <label className="block mb-2" style={{ color: '#000000' }}>
+                  Pelanggan <span style={{ color: '#e40b18' }}>*</span>
+                </label>
+                {selectedPelanggan ? (
+                  <div className="p-3 rounded-lg border-2 flex items-center gap-3"
+                    style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.04)' }}>
+                    <div className="flex-1">
+                      <p style={{ color: '#000000' }}>
+                        {selectedPelanggan.nama}
+                        <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-mono" style={{ backgroundColor: '#f3f4f6', color: '#27b446' }}>
+                          {selectedPelanggan.kode}
+                        </span>
+                      </p>
+                      <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
+                        {[selectedPelanggan.telepon, selectedPelanggan.email].filter(Boolean).join(" · ") || "—"}
+                        {selectedPelanggan.kecamatan ? ` · ${selectedPelanggan.kecamatan}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedPelanggan(null); setPelangganQuery(""); }}
+                      className="p-2 rounded-lg border transition-colors"
+                      style={{ borderColor: '#e40b18', color: '#e40b18' }}
+                      title="Ganti pelanggan"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
+                    <input
+                      type="text"
+                      placeholder="Cari nama, telepon, atau kode pelanggan..."
+                      value={pelangganQuery}
+                      onChange={(e) => { setPelangganQuery(e.target.value); setShowPelangganResults(true); }}
+                      onFocus={() => setShowPelangganResults(true)}
+                      className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                      style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                    />
+                    {pelangganSearching && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>
+                        Mencari...
+                      </span>
+                    )}
+                    {showPelangganResults && pelangganResults.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-64 overflow-y-auto">
+                        {pelangganResults.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => { setSelectedPelanggan(p); setPelangganResults([]); setShowPelangganResults(false); }}
+                            className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p style={{ color: '#1a0408' }}>{p.nama}</p>
+                                <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
+                                  {[p.telepon, p.email].filter(Boolean).join(" · ") || "—"}
+                                </p>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-full text-xs font-mono" style={{ backgroundColor: p.isMember ? 'rgba(39,180,70,0.1)' : '#f3f4f6', color: p.isMember ? '#27b446' : '#1a0408' }}>
+                                {p.isMember ? "Member" : p.kode}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {showPelangganResults && pelangganQuery && !pelangganSearching && pelangganResults.length === 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 p-4 text-center">
+                        <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
+                          Pelanggan tidak ditemukan. Buat pelanggan di menu <strong>Pelanggan</strong>.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Product Search */}
             <div>
               <label className="block mb-2" style={{ color: '#000000' }}>
@@ -1465,6 +1658,25 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
                       <div key={item.produkId ?? item.name} className="p-4 flex items-center gap-4">
                         <div className="flex-1">
                           <p style={{ color: '#1a0408' }}>{item.name}</p>
+                          {item.satuanOptions.length > 1 ? (
+                            <div className="relative inline-block mt-1">
+                              <select
+                                value={String(item.produkSatuanId ?? "")}
+                                onChange={(e) => handleChangeSatuan(item.produkId, Number(e.target.value))}
+                                className="appearance-none pl-2 pr-7 py-0.5 rounded border border-gray-300 text-xs focus:outline-none focus:ring-2 cursor-pointer"
+                                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                              >
+                                {item.satuanOptions.map(o => (
+                                  <option key={o.produkSatuanId} value={o.produkSatuanId}>{o.satuanNama}</option>
+                                ))}
+                              </select>
+                              <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: '#1a0408', opacity: 0.5 }} />
+                            </div>
+                          ) : item.satuanNama ? (
+                            <span className="inline-flex mt-1 px-2 py-0.5 rounded text-xs" style={{ backgroundColor: '#f3f4f6', color: '#1a0408' }}>
+                              {item.satuanNama}
+                            </span>
+                          ) : null}
                           <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
                             Rp {item.price.toLocaleString('id-ID')} × {item.quantity}
                           </p>

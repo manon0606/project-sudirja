@@ -10,9 +10,15 @@ import type { UserErrorCode } from "@/lib/user-types";
 import type { KomisiErrorCode } from "@/lib/komisi-types";
 import type { SettingsErrorCode } from "@/lib/settings-types";
 import type { OngkirErrorCode } from "@/lib/ongkir-types";
+import type { PelangganErrorCode } from "@/lib/pelanggan-types";
+import type { SupplierErrorCode } from "@/lib/supplier-types";
+import type { KonsinyasiErrorCode } from "@/lib/konsinyasi-types";
+import type { PembelianErrorCode } from "@/lib/pembelian-types";
+import type { LaporanErrorCode } from "@/lib/laporan-types";
+import type { DashboardErrorCode } from "@/lib/dashboard-types";
 import { getCurrentAdmin, type CurrentAdmin } from "@/lib/auth";
 
-export type ApiErrorCode = AuthErrorCode | ProductErrorCode | StokErrorCode | PromoErrorCode | PesananErrorCode | UserErrorCode | KomisiErrorCode | SettingsErrorCode | OngkirErrorCode;
+export type ApiErrorCode = AuthErrorCode | ProductErrorCode | StokErrorCode | PromoErrorCode | PesananErrorCode | UserErrorCode | KomisiErrorCode | SettingsErrorCode | OngkirErrorCode | PelangganErrorCode | SupplierErrorCode | KonsinyasiErrorCode | PembelianErrorCode | LaporanErrorCode | DashboardErrorCode;
 
 /** Success envelope: { ok: true, data }. */
 export function ok<T>(data: T, init?: ResponseInit): NextResponse {

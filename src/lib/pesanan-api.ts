@@ -9,12 +9,14 @@ import type {
   CreateReturInput,
   KreditDTO,
   KreditListParams,
+  KurirDTO,
   PesananDTO,
   PesananListParams,
   PesananPaginationMeta,
   PesananProdukOption,
   ReturDTO,
   ReturListParams,
+  UpdatePengirimanInput,
 } from "@/lib/pesanan-types";
 
 export interface PesananListResponse {
@@ -52,6 +54,19 @@ export function getPesanan(noPesanan: string): Promise<PesananDTO> {
 export function createPesanan(input: CreatePesananInput): Promise<PesananDTO> {
   return apiFetch<PesananDTO>("/api/backoffice-sudirja/pesanan", {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+// Commerce --------------------------------------------------------------------
+
+export function listKurir(): Promise<KurirDTO[]> {
+  return apiFetch<KurirDTO[]>("/api/backoffice-sudirja/kurir");
+}
+
+export function updatePengiriman(noPesanan: string, input: UpdatePengirimanInput): Promise<PesananDTO> {
+  return apiFetch<PesananDTO>(`/api/backoffice-sudirja/pesanan/${encodeURIComponent(noPesanan)}`, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }

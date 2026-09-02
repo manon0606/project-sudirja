@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import { ExportButton, AddButton } from "./ActionButtons";
 import { ApiClientError } from "@/lib/api-client";
 import {
   listStok,
@@ -192,26 +193,16 @@ export default function Stok() {
             </div>
 
             <div className="flex gap-3">
-              <button
-                onClick={() => setShowBulkUploadModal(true)}
-                className="px-4 py-3 rounded-lg border-2 transition-all hover:opacity-90 flex items-center gap-2"
-                style={{
-                  borderColor: '#27b446',
-                  color: '#27b446',
-                  backgroundColor: 'rgba(39, 180, 70, 0.05)'
-                }}
-              >
-                <Upload className="w-5 h-5" />
-                Bulk Upload Stok
-              </button>
-              <button
+              <ExportButton
                 onClick={handleDownloadReport}
-                className="px-4 py-3 rounded-lg transition-all hover:opacity-90 flex items-center gap-2 text-white"
-                style={{ backgroundColor: '#27b446' }}
-              >
-                <Download className="w-5 h-5" />
-                Unduh Laporan Stok
-              </button>
+                label="Export Data"
+                icon={Download}
+                title="Export seluruh data stok (CSV)"
+              />
+              <AddButton
+                onClick={() => setShowBulkUploadModal(true)}
+                label="Bulk Upload Stok"
+              />
             </div>
           </div>
         </div>
