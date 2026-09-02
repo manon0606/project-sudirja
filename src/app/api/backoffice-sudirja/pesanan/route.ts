@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { ok, fail, requireAdmin } from "@/lib/api-helpers";
 import { getCurrentAdmin } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { verifyPosApiKey } from "@/lib/settings-service";
 import type { RowDataPacket } from "mysql2/promise";
 import {
   listPesanan,
@@ -25,10 +26,22 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST /pesanan — buat pesanan manual. Body: { items, metodeBayar, ... } */
+/**
+ * POST /pesanan — buat pesanan manual. Body: { items, metodeBayar, ... }
+ * Auth: session admin ATAU API key POS (header X-API-Key) saat mode online.
+ * Saat via API key, identitas kasir diambil dari body { kasirNama, kasirUsername }.
+ */
 export async function POST(request: NextRequest) {
   const current = await requireAdmin();
-  if (!current) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  const apiKey = request.headers.get("x-api-key");
+  let posAuth: { nama: string; username: string } | null = null;
+  if (!current) {
+    const keyResult = await verifyPosApiKey(apiKey);
+    if (!keyResult.valid) {
+      return fail(401, "UNAUTHORIZED", "API key tidak valid atau mode online nonaktif.");
+    }
+    posAuth = { nama: "", username: "pos" };
+  }
 
   let body: unknown;
   try {
@@ -121,7 +134,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const admin = (await getCurrentAdmin())!.admin;
+    let kasir: { nama: string; username: string };
+    if (current) {
+      const admin = (await getCurrentAdmin())!.admin;
+      kasir = { nama: admin.full_name, username: admin.username };
+    } else {
+      // POS via API key — identitas kasir dikirim body (jika ada).
+      kasir = {
+        nama: typeof b.kasirNama === "string" && b.kasirNama.trim() ? b.kasirNama.trim() : "POS",
+        username: typeof b.kasirUsername === "string" && b.kasirUsername.trim() ? b.kasirUsername.trim() : "pos",
+      };
+    }
     const created = await createPesananTx(
       {
         items,
@@ -131,7 +154,7 @@ export async function POST(request: NextRequest) {
         uangDiterima,
         catatan: typeof b.catatan === "string" ? b.catatan.trim() : null,
       },
-      { nama: admin.full_name, username: admin.username },
+      kasir,
     );
     return ok(created, { status: 201 });
   } catch (error) {

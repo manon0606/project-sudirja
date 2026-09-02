@@ -1,11 +1,13 @@
 import type { NextRequest } from "next/server";
 import { ok, fail } from "@/lib/api-helpers";
+import { execute } from "@/lib/db";
 import {
   validateRegister,
   findAdminByUsername,
   findAdminByEmail,
   hashPassword,
   createAdmin,
+  resolveAdminAccess,
   toProfile,
 } from "@/lib/auth";
 
@@ -50,7 +52,16 @@ export async function POST(request: NextRequest) {
       passwordHash: hashPassword(input.password),
       fullName: input.fullName,
     });
-    return ok({ admin: toProfile(admin) }, { status: 201 });
+
+    // Relasi 1 admin = 1 user profil (role superadmin default → akses penuh).
+    await execute(
+      `INSERT INTO users (admin_id, username, full_name, role, phone, email, is_active)
+       VALUES (?, ?, ?, 'superadmin', NULL, ?, 1)`,
+      [admin.id, admin.username, admin.full_name, admin.email],
+    );
+
+    const access = await resolveAdminAccess(admin);
+    return ok({ admin: toProfile(admin, access) }, { status: 201 });
   } catch (error) {
     // Race guard: two concurrent registers hit the unique key.
     if (isUniqueViolation(error)) {

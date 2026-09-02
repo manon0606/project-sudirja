@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "./useUser";
 
 type SidebarPage =
   | "dashboard" | "pesanan" | "daftar-pesanan" | "pesanan-kredit" | "pengembalian"
@@ -66,9 +67,22 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
 
 export default function AdminSidebar({ activePage = "dashboard" }: { activePage?: SidebarPage }) {
   const router = useRouter();
+  const currentUser = useUser();
   const [collapsed, setCollapsed] = useState(false);
   const [active, setActive] = useState<SidebarPage>(activePage);
   const [expanded, setExpanded] = useState<string[]>(["pesanan", "produk"]);
+
+  /** ACL: superadmin selalu akses semua; selain itu hanya fitur yang ada di permissions role-nya. */
+  function hasAccess(item: MenuItem): boolean {
+    if (currentUser.isSuperadmin) return true;
+    const perms = currentUser.permissions ?? [];
+    if (item.children) {
+      return item.children.some((c) => perms.includes(c.id));
+    }
+    return perms.includes(item.id);
+  }
+
+  const visibleMenu = menu.filter(hasAccess);
 
   function logout() {
     localStorage.removeItem("sudirja-user");
@@ -95,7 +109,7 @@ export default function AdminSidebar({ activePage = "dashboard" }: { activePage?
       <button type="button" aria-label={collapsed ? "Buka sidebar" : "Tutup sidebar"} onClick={() => setCollapsed(!collapsed)} className="rounded-lg p-2 text-[#1a0408]/65 hover:bg-[#f3f4f6]"><Icon name={collapsed ? "chevron-right" : "chevron-left"} /></button>
     </div>
     <nav className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">
-      {menu.map((item) => <div key={item.id}>
+      {visibleMenu.map((item) => <div key={item.id}>
         <button type="button" onClick={() => selectItem(item)} className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm transition ${active === item.id ? "bg-[#27b446] text-white" : "text-[#1a0408]/70 hover:bg-[#f3f4f6] hover:text-[#1a0408]"}`}>
           <span className="flex min-w-0 items-center gap-3"><Icon name={item.icon} /><span className={collapsed ? "sr-only" : "min-w-0 truncate"}>{item.label}</span></span>
           {!collapsed && item.children && <Icon name="chevron-down" className={`h-4 w-4 transition ${expanded.includes(item.id) ? "rotate-180" : ""}`} />}
@@ -104,7 +118,7 @@ export default function AdminSidebar({ activePage = "dashboard" }: { activePage?
       </div>)}
     </nav>
     <div className={`shrink-0 border-t border-[#e5e2e3] bg-white ${collapsed ? "p-2" : "p-4"}`}>
-      <button type="button" onClick={() => router.push(`${BASE}/user`)} className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-[#1a0408]/70 hover:bg-[#f3f4f6] ${collapsed ? "justify-center" : ""}`}><Icon name="user-circle" /><span className={collapsed ? "sr-only" : "text-left"}><span className="block text-sm text-black">Administrator</span><span className="block text-xs text-[#1a0408]/60">admin</span></span></button>
+      <button type="button" onClick={() => { if (currentUser.isSuperadmin || (currentUser.permissions ?? []).includes("user")) router.push(`${BASE}/user`); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-[#1a0408]/70 hover:bg-[#f3f4f6] ${collapsed ? "justify-center" : ""}`}><Icon name="user-circle" /><span className={collapsed ? "sr-only" : "text-left"}><span className="block text-sm text-black">{currentUser.fullName || "Administrator"}</span><span className="block text-xs text-[#1a0408]/60">{currentUser.roleLabel || currentUser.role || "admin"}</span></span></button>
       <button type="button" onClick={logout} className={`mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-[#e40b18]/90 hover:bg-[#fff1f1] ${collapsed ? "justify-center" : ""}`}><Icon name="logout" />{!collapsed && <span className="text-sm">Keluar</span>}</button>
     </div>
   </aside>;

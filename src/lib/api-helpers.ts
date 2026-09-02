@@ -8,9 +8,11 @@ import type { PromoErrorCode } from "@/lib/promo-types";
 import type { PesananErrorCode } from "@/lib/pesanan-types";
 import type { UserErrorCode } from "@/lib/user-types";
 import type { KomisiErrorCode } from "@/lib/komisi-types";
+import type { SettingsErrorCode } from "@/lib/settings-types";
+import type { OngkirErrorCode } from "@/lib/ongkir-types";
 import { getCurrentAdmin, type CurrentAdmin } from "@/lib/auth";
 
-export type ApiErrorCode = AuthErrorCode | ProductErrorCode | StokErrorCode | PromoErrorCode | PesananErrorCode | UserErrorCode | KomisiErrorCode;
+export type ApiErrorCode = AuthErrorCode | ProductErrorCode | StokErrorCode | PromoErrorCode | PesananErrorCode | UserErrorCode | KomisiErrorCode | SettingsErrorCode | OngkirErrorCode;
 
 /** Success envelope: { ok: true, data }. */
 export function ok<T>(data: T, init?: ResponseInit): NextResponse {

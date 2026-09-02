@@ -2,6 +2,9 @@ import { apiFetch } from "@/lib/api-client";
 import type {
   BulkUserResult,
   CreateUserInput,
+  CreateRoleInput,
+  RoleDTO,
+  UpdateRoleInput,
   UpdateUserInput,
   UserDTO,
   UserListResponse,
@@ -47,6 +50,24 @@ export function deleteUser(id: number): Promise<{ message: string }> {
 
 export function bulkCreateUsers(rows: CreateUserInput[]): Promise<BulkUserResult> {
   return apiFetch("/api/backoffice-sudirja/users/bulk", { method: "POST", body: JSON.stringify({ rows }) });
+}
+
+// Roles ----------------------------------------------------------------------
+
+export function listRoles(): Promise<RoleDTO[]> {
+  return apiFetch("/api/backoffice-sudirja/roles");
+}
+
+export function createRole(input: CreateRoleInput): Promise<RoleDTO> {
+  return apiFetch("/api/backoffice-sudirja/roles", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateRole(name: string, input: UpdateRoleInput): Promise<RoleDTO> {
+  return apiFetch(`/api/backoffice-sudirja/roles/${encodeURIComponent(name)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteRole(name: string): Promise<{ message: string }> {
+  return apiFetch(`/api/backoffice-sudirja/roles/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 export function downloadUsersCsv(items: UserDTO[]): void {

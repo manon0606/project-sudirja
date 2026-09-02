@@ -39,7 +39,13 @@ export interface AdminProfile {
   username: string;
   email: string;
   fullName: string;
-  role: "manajemen" | "superadmin";
+  /** Kode role dari user profil terkait (dinamis). */
+  role: string;
+  /** Label role dari user profil terkait. */
+  roleLabel: string;
+  /** Daftar kode fitur yang boleh diakses (ACL). */
+  permissions: string[];
+  isSuperadmin: boolean;
   createdAt: string;
 }
 

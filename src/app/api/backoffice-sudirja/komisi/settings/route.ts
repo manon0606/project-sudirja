@@ -1,8 +1,7 @@
 import type { NextRequest } from "next/server";
 import { fail, ok, requireAdmin } from "@/lib/api-helpers";
 import { getKomisiSettings, updateKomisiSetting } from "@/lib/komisi-service";
-import { USER_ROLES } from "@/lib/user-types";
-import type { UserRole } from "@/lib/user-types";
+import { getRoleByName } from "@/lib/user-service";
 
 export async function GET(_request: NextRequest) {
   if (!await requireAdmin()) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
@@ -24,7 +23,7 @@ export async function PATCH(request: NextRequest) {
   }
   const b = (body ?? {}) as Record<string, unknown>;
   const role = typeof b.role === "string" ? b.role : "";
-  if (!USER_ROLES.includes(role as UserRole)) {
+  if (!role || !(await getRoleByName(role))) {
     return fail(422, "VALIDATION_ERROR", "Role tidak valid.");
   }
   const persenKomisi = typeof b.persenKomisi === "number" ? b.persenKomisi : Number(b.persenKomisi);
@@ -33,7 +32,7 @@ export async function PATCH(request: NextRequest) {
   }
   const aktif = b.aktif !== false;
   try {
-    return ok(await updateKomisiSetting(role as UserRole, persenKomisi, aktif));
+    return ok(await updateKomisiSetting(role, persenKomisi, aktif));
   } catch (e) {
     console.error("[komisi/settings]", e);
     return fail(500, "INTERNAL_ERROR", "Terjadi kesalahan server.");

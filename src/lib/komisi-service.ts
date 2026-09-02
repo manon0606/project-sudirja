@@ -6,14 +6,13 @@ import type {
   KomisiRekapDTO,
   KomisiRekapResponse,
   KomisiSettingDTO,
-  KomisiSettingsMap,
+  KomisiSettingsList,
   KomisiTransaksiDTO,
 } from "@/lib/komisi-types";
-import type { UserRole } from "@/lib/user-types";
-import { USER_ROLES } from "@/lib/user-types";
 
 interface SettingRow extends RowDataPacket {
-  role: UserRole;
+  role: string;
+  role_label: string;
   persen_komisi: string | number;
   aktif: number;
 }
@@ -21,7 +20,8 @@ interface SettingRow extends RowDataPacket {
 interface RekapRow extends RowDataPacket {
   user_id: number;
   user_name: string;
-  role: UserRole;
+  role: string;
+  role_label: string;
   total_transaksi: number;
   total_nominal: string | number;
   total_dibayar: string | number;
@@ -29,28 +29,33 @@ interface RekapRow extends RowDataPacket {
 }
 
 // ---------------------------------------------------------------------------
-// Settings
+// Settings — dinamis: semua role dari komisi_settings (JOIN roles utk label)
 // ---------------------------------------------------------------------------
 
-export async function getKomisiSettings(): Promise<KomisiSettingsMap> {
-  const result = await query<SettingRow[]>("SELECT role, persen_komisi, aktif FROM komisi_settings");
-  const map = {} as KomisiSettingsMap;
-  for (const role of USER_ROLES) {
-    const row = result.rows.find((r) => r.role === role);
-    map[role] = row
-      ? { role, persenKomisi: Number(row.persen_komisi), aktif: row.aktif === 1 }
-      : { role, persenKomisi: 0, aktif: false };
-  }
-  return map;
+export async function getKomisiSettings(): Promise<KomisiSettingsList> {
+  const result = await query<SettingRow[]>(
+    `SELECT ks.role, COALESCE(r.label, ks.role) AS role_label, ks.persen_komisi, ks.aktif
+     FROM komisi_settings ks
+     LEFT JOIN roles r ON r.name = ks.role
+     ORDER BY ks.id ASC`,
+  );
+  return result.rows.map((row) => ({
+    role: row.role,
+    roleLabel: row.role_label ?? row.role,
+    persenKomisi: Number(row.persen_komisi),
+    aktif: row.aktif === 1,
+  }));
 }
 
-export async function updateKomisiSetting(role: UserRole, persenKomisi: number, aktif: boolean): Promise<KomisiSettingDTO> {
+export async function updateKomisiSetting(role: string, persenKomisi: number, aktif: boolean): Promise<KomisiSettingDTO> {
   await execute(
     `INSERT INTO komisi_settings (role, persen_komisi, aktif) VALUES (?, ?, ?)
      ON DUPLICATE KEY UPDATE persen_komisi = VALUES(persen_komisi), aktif = VALUES(aktif)`,
     [role, persenKomisi, aktif ? 1 : 0],
   );
-  return { role, persenKomisi, aktif };
+  const labelRows = await query<RowDataPacket[]>("SELECT label FROM roles WHERE name = ? LIMIT 1", [role]);
+  const roleLabel = labelRows.rows[0] ? String((labelRows.rows[0] as { label: string }).label) : role;
+  return { role, roleLabel, persenKomisi, aktif };
 }
 
 // ---------------------------------------------------------------------------
@@ -60,16 +65,12 @@ export async function updateKomisiSetting(role: UserRole, persenKomisi: number, 
 /**
  * Hitung & catat komisi untuk user yang terlibat dalam sebuah pesanan.
  * Dipanggil di dalam transaksi createPesananTx.
- *
- * - user_id: user operasional (kasir) yang menangani pesanan
- * - dasar_komisi: subtotal pesanan (sebelum diskon) — konsisten dengan
- *   definisi "komisi dari transaksi"
- * - persen diambil dari komisi_settings per role user; role tanpa aturan
- *   aktif atau 0% dilewati
+ * Role user menentukan persen dari komisi_settings; role tanpa aturan
+ * aktif atau 0% dilewati.
  */
 export async function catatKomisiPesanan(
   conn: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
-  input: { userId: number; pesananId: number; role: UserRole; dasarKomisi: number },
+  input: { userId: number; pesananId: number; role: string; dasarKomisi: number },
 ): Promise<void> {
   const [settingRows] = await conn.query(
     "SELECT persen_komisi, aktif FROM komisi_settings WHERE role = ? LIMIT 1",
@@ -111,7 +112,7 @@ export async function listKomisiRekap(params: ReturnType<typeof parseKomisiListP
     where.push("(u.username LIKE ? OR u.full_name LIKE ?)");
     args.push(`%${params.search}%`, `%${params.search}%`);
   }
-  if (USER_ROLES.includes(params.role as UserRole)) {
+  if (params.role) {
     where.push("u.role = ?");
     args.push(params.role);
   }
@@ -125,14 +126,16 @@ export async function listKomisiRekap(params: ReturnType<typeof parseKomisiListP
 
   const rows = await query<RekapRow[]>(
     `SELECT u.id AS user_id, u.full_name AS user_name, u.role,
+            COALESCE(r.label, u.role) AS role_label,
             COUNT(kt.id) AS total_transaksi,
             COALESCE(SUM(kt.nominal_komisi), 0) AS total_nominal,
             COALESCE(SUM(CASE WHEN kt.status = 'dibayar' THEN kt.nominal_komisi ELSE 0 END), 0) AS total_dibayar,
             COALESCE(SUM(CASE WHEN kt.status = 'terhitung' THEN kt.nominal_komisi ELSE 0 END), 0) AS total_belum
      FROM users u
+     LEFT JOIN roles r ON r.name = u.role
      LEFT JOIN komisi_transaksi kt ON kt.user_id = u.id
      ${whereSql}
-     GROUP BY u.id, u.full_name, u.role
+     GROUP BY u.id, u.full_name, u.role, r.label
      ORDER BY total_nominal DESC
      LIMIT ? OFFSET ?`,
     [...args, params.pageSize, (params.page - 1) * params.pageSize],
@@ -142,6 +145,7 @@ export async function listKomisiRekap(params: ReturnType<typeof parseKomisiListP
     userId: r.user_id,
     userName: r.user_name,
     role: r.role,
+    roleLabel: r.role_label ?? r.role,
     totalTransaksi: Number(r.total_transaksi),
     totalNominal: Number(r.total_nominal),
     totalDibayar: Number(r.total_dibayar),
@@ -162,7 +166,7 @@ interface TransaksiRow extends RowDataPacket {
   id: number;
   user_id: number;
   user_name: string;
-  role: UserRole;
+  role: string;
   no_pesanan: string;
   dasar_komisi: string | number;
   persen_komisi: string | number;

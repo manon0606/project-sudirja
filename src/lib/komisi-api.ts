@@ -1,10 +1,9 @@
 import { apiFetch } from "@/lib/api-client";
 import type {
   KomisiRekapDTO,
-  KomisiSettingsMap,
+  KomisiSettingsList,
   KomisiTransaksiDTO,
 } from "@/lib/komisi-types";
-import type { UserRole } from "@/lib/user-types";
 
 export interface KomisiListParams {
   page?: number;
@@ -21,11 +20,11 @@ function qs(p: KomisiListParams): string {
   return q.toString();
 }
 
-export function getKomisiSettings(): Promise<KomisiSettingsMap> {
+export function getKomisiSettings(): Promise<KomisiSettingsList> {
   return apiFetch("/api/backoffice-sudirja/komisi/settings");
 }
 
-export function updateKomisiSetting(role: UserRole, persenKomisi: number, aktif: boolean): Promise<{ role: UserRole; persenKomisi: number; aktif: boolean }> {
+export function updateKomisiSetting(role: string, persenKomisi: number, aktif: boolean): Promise<{ role: string; roleLabel: string; persenKomisi: number; aktif: boolean }> {
   return apiFetch("/api/backoffice-sudirja/komisi/settings", {
     method: "PATCH",
     body: JSON.stringify({ role, persenKomisi, aktif }),

@@ -4,6 +4,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { query, execute, withTransaction } from "@/lib/db";
+import type { RowDataPacket } from "mysql2/promise";
 import type { AdminProfile } from "@/lib/auth-types";
 
 // ---------------------------------------------------------------------------
@@ -132,13 +133,19 @@ function constantTimeEquals(a: string, b: string): boolean {
 
 const ADMIN_COLUMNS = `id, username, email, password_hash, full_name, role, is_active, created_at`;
 
-export function toProfile(admin: DbAdmin): AdminProfile {
+export function toProfile(
+  admin: DbAdmin,
+  access: { role: string; roleLabel: string; permissions: string[]; isSuperadmin: boolean } = { role: "superadmin", roleLabel: "Super Admin", permissions: [], isSuperadmin: true },
+): AdminProfile {
   return {
     id: admin.id,
     username: admin.username,
     email: admin.email,
     fullName: admin.full_name,
-    role: admin.role,
+    role: access.role,
+    roleLabel: access.roleLabel,
+    permissions: access.permissions,
+    isSuperadmin: access.isSuperadmin,
     createdAt: admin.created_at.toISOString(),
   };
 }
@@ -284,6 +291,52 @@ export async function readSessionToken(): Promise<string | null> {
 export interface CurrentAdmin {
   admin: DbAdmin;
   token: string;
+  /** Role user terkait (dari users JOIN roles) — sumber ACL. */
+  role: string;
+  /** Label role user terkait. */
+  roleLabel: string;
+  /** Daftar kode fitur yang boleh diakses (dari roles.permissions). */
+  permissions: string[];
+  /** Superadmin selalu punya semua fitur. */
+  isSuperadmin: boolean;
+}
+
+interface UserAccessRow extends RowDataPacket {
+  role: string;
+  role_label: string;
+  permissions: string | null;
+}
+
+/**
+ * Resolve akses (role + permissions) untuk seorang admin dari user profil
+ * terkait (users.admin_id → admins.id). Bila admin belum punya user terkait,
+ * fallback: role lama admins ('superadmin'/'manajemen') dengan akses penuh.
+ */
+export async function resolveAdminAccess(admin: DbAdmin): Promise<{
+  role: string;
+  roleLabel: string;
+  permissions: string[];
+  isSuperadmin: boolean;
+}> {
+  const { rows } = await query<UserAccessRow[]>(
+    `SELECT u.role, COALESCE(r.label, u.role) AS role_label, r.permissions
+     FROM users u
+     LEFT JOIN roles r ON r.name = u.role
+     WHERE u.admin_id = ? LIMIT 1`,
+    [admin.id],
+  );
+  const row = rows[0];
+  if (row) {
+    const perms = row.permissions ? row.permissions.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    return {
+      role: row.role,
+      roleLabel: row.role_label ?? row.role,
+      permissions: perms,
+      isSuperadmin: row.role === "superadmin",
+    };
+  }
+  // Fallback untuk admin tanpa user profil — akses penuh.
+  return { role: "superadmin", roleLabel: "Super Admin", permissions: [], isSuperadmin: true };
 }
 
 export async function getCurrentAdmin(): Promise<CurrentAdmin | null> {
@@ -291,7 +344,8 @@ export async function getCurrentAdmin(): Promise<CurrentAdmin | null> {
   if (!token || token.length !== 64) return null;
   const admin = await getSessionAdmin(token);
   if (!admin) return null;
-  return { admin, token };
+  const access = await resolveAdminAccess(admin);
+  return { admin, token, ...access };
 }
 
 // Re-exported for tests/tools that need constant-time comparison.

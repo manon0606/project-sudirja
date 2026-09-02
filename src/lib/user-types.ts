@@ -1,35 +1,44 @@
 /**
- * Shared API contract untuk fitur admin user operasional.
+ * Shared API contract untuk fitur admin user & role.
  *
- * "User" di sini BUKAN admin login (tabel admins) — melainkan pengguna
- * operasional (kasir, kurir, gudang, supervisor, owner) yang punya role
- * sendiri dan dapat menerima komisi dari transaksi.
+ * Desain (hasil konfirmasi flow):
+ *  - Admin = akun login (username + password di tabel `admins`).
+ *  - Setiap admin punya 1 baris `users` terkait (FK admin_id) yang
+ *    menyimpan data pribadi (nama, HP, email) + role.
+ *  - Role bersifat dinamis (tabel `roles`) + permission (kode fitur).
  *
  * Envelope konsisten: { ok: true, data } / { ok: false, error }.
  * Client-safe: type-only, tanpa server imports.
  */
 
-export type UserRole = "kasir" | "kurir" | "gudang" | "supervisor" | "owner";
+/** Role dinamis — cukup pakai string kode role. */
+export type UserRole = string;
 
-export const USER_ROLES: UserRole[] = ["kasir", "kurir", "gudang", "supervisor", "owner"];
+/** Kode fitur admin (identik dgn id menu di AdminSidebar). */
+export const FEATURE_CODES = [
+  "dashboard",
+  "pesanan",
+  "produk",
+  "stok",
+  "promo",
+  "user",
+  "pembelian",
+  "konsinyasi",
+  "laporan",
+  "pelanggan",
+  "commerce",
+  "pemetaan",
+  "settings",
+] as const;
 
-export const USER_ROLE_LABELS: Record<UserRole, string> = {
-  kasir: "Kasir",
-  kurir: "Kurir",
-  gudang: "Gudang",
-  supervisor: "Supervisor",
-  owner: "Owner",
-};
-
-// ---------------------------------------------------------------------------
-// Error codes
-// ---------------------------------------------------------------------------
+export type FeatureCode = (typeof FEATURE_CODES)[number];
 
 export type UserErrorCode =
   | "VALIDATION_ERROR"
   | "NOT_FOUND"
   | "USERNAME_TAKEN"
   | "EMAIL_TAKEN"
+  | "ROLE_NOT_FOUND"
   | "UNAUTHORIZED"
   | "INTERNAL_ERROR";
 
@@ -39,32 +48,34 @@ export type UserErrorCode =
 
 export interface UserDTO {
   id: number;
+  adminId: number | null;
   username: string;
   fullName: string;
-  role: UserRole;
+  role: string;           // kode role (dinamis)
+  roleLabel: string;      // label role dari tabel roles
   phone: string | null;
   email: string | null;
   isActive: boolean;
   createdAt: string;
 }
 
-/** Input untuk create user (password wajib). */
+/** Input create user — password disimpan di admins (akun login). */
 export interface CreateUserInput {
   username: string;
   password: string;
   fullName: string;
-  role: UserRole;
+  role: string;
   phone?: string | null;
   email?: string | null;
   isActive?: boolean;
 }
 
-/** Input untuk update user (partial; password opsional). */
+/** Input update user — password opsional (di admins). */
 export interface UpdateUserInput {
   username?: string;
   password?: string;
   fullName?: string;
-  role?: UserRole;
+  role?: string;
   phone?: string | null;
   email?: string | null;
   isActive?: boolean;
@@ -79,3 +90,23 @@ export interface BulkUserResult {
   success: number;
   failures: Array<{ row: number; username: string; message: string }>;
 }
+
+// ---------------------------------------------------------------------------
+// Roles
+// ---------------------------------------------------------------------------
+
+export interface RoleDTO {
+  id: number;
+  name: string;           // kode role
+  label: string;
+  permissions: string[];  // daftar kode fitur
+  isSystem: boolean;
+}
+
+export interface CreateRoleInput {
+  name: string;
+  label: string;
+  permissions: string[];
+}
+
+export type UpdateRoleInput = Partial<Pick<CreateRoleInput, "label" | "permissions">>;

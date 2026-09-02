@@ -7,6 +7,8 @@ import {
   createSession,
   setSessionCookie,
   purgeExpiredSessions,
+  resolveAdminAccess,
+  toProfile,
 } from "@/lib/auth";
 
 // Dummy hash of "invalid" — used to equalize timing when the username does not
@@ -51,15 +53,10 @@ export async function POST(request: NextRequest) {
     });
     await setSessionCookie(token, expiresAt);
 
+    // Akses (role + permissions) dari user profil terkait.
+    const access = await resolveAdminAccess(admin);
     return ok({
-      admin: {
-        id: admin.id,
-        username: admin.username,
-        email: admin.email,
-        fullName: admin.full_name,
-        role: admin.role,
-        createdAt: admin.created_at.toISOString(),
-      },
+      admin: toProfile(admin, access),
     });
   } catch (error) {
     console.error("[auth/login] unexpected error:", error);

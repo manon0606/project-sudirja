@@ -1,26 +1,27 @@
 /**
  * Shared API contract untuk fitur komisi.
  *
- * Komisi: user operasional (kasir, kurir, dll) yang terlibat dalam proses
- * order dapat memperoleh komisi berdasarkan aturan (persen per role) dari
- * dasar komisi (subtotal/total pesanan).
+ * Komisi: user (kasir, kurir, dll) yang terlibat dalam proses order dapat
+ * memperoleh komisi berdasarkan aturan (persen per role) dari dasar komisi
+ * (subtotal/total pesanan). Role bersifat dinamis (tabel `roles`); setiap
+ * role otomatis punya baris di komisi_settings.
  *
  * Client-safe: type-only, tanpa server imports.
  */
-
-import type { UserRole } from "@/lib/user-types";
 
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 
 export interface KomisiSettingDTO {
-  role: UserRole;
+  role: string;             // kode role (dinamis)
+  roleLabel: string;        // label dari roles
   persenKomisi: number;
   aktif: boolean;
 }
 
-export type KomisiSettingsMap = Record<UserRole, KomisiSettingDTO>;
+/** Daftar setting komisi — semua role yang ada (termasuk role dinamis). */
+export type KomisiSettingsList = KomisiSettingDTO[];
 
 // ---------------------------------------------------------------------------
 // Transaksi komisi
@@ -30,7 +31,7 @@ export interface KomisiTransaksiDTO {
   id: number;
   userId: number;
   userName: string;
-  userRole: UserRole;
+  userRole: string;
   noPesanan: string;
   dasarKomisi: number;
   persenKomisi: number;
@@ -42,7 +43,8 @@ export interface KomisiTransaksiDTO {
 export interface KomisiRekapDTO {
   userId: number;
   userName: string;
-  role: UserRole;
+  role: string;
+  roleLabel: string;
   totalTransaksi: number;
   totalNominal: number;
   totalDibayar: number;

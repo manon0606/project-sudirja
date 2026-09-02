@@ -2,13 +2,28 @@
 
 import { useSyncExternalStore } from "react";
 
-type User = {
+export type AccessUser = {
   username: string;
-  role: "kasir" | "manajemen";
   fullName: string;
+  /** Kode role dinamis (dari user profil terkait). */
+  role: string;
+  /** Label role. */
+  roleLabel: string;
+  /** Daftar kode fitur yang boleh diakses. */
+  permissions: string[];
+  isSuperadmin: boolean;
+  adminId: number;
 };
 
-const DEFAULT_USER: User = { username: "", role: "manajemen", fullName: "" };
+const DEFAULT_USER: AccessUser = {
+  username: "",
+  fullName: "",
+  role: "superadmin",
+  roleLabel: "Super Admin",
+  permissions: [],
+  isSuperadmin: true,
+  adminId: 0,
+};
 
 const EMPTY_SUBSCRIBE = () => () => {};
 
@@ -16,9 +31,9 @@ const EMPTY_SUBSCRIBE = () => () => {};
 // loops forever. We cache the parsed result and only rebuild when the raw
 // localStorage value actually changes (login/logout).
 let cachedRaw: string | null = null;
-let cachedUser: User = DEFAULT_USER;
+let cachedUser: AccessUser = DEFAULT_USER;
 
-function readUser(): User {
+function readUser(): AccessUser {
   let raw: string;
   try {
     raw = localStorage.getItem("sudirja-user") || localStorage.getItem("user") || "{}";
@@ -30,10 +45,15 @@ function readUser(): User {
 
   try {
     const parsed = JSON.parse(raw);
+    const role = typeof parsed.role === "string" && parsed.role ? parsed.role : "superadmin";
     cachedUser = {
       username: parsed.username || "",
-      role: parsed.role === "kasir" ? "kasir" : "manajemen",
       fullName: parsed.fullName || "",
+      role,
+      roleLabel: parsed.roleLabel || role,
+      permissions: Array.isArray(parsed.permissions) ? parsed.permissions : [],
+      isSuperadmin: parsed.isSuperadmin === true || role === "superadmin",
+      adminId: Number(parsed.adminId) || 0,
     };
   } catch {
     cachedUser = DEFAULT_USER;
@@ -42,10 +62,10 @@ function readUser(): User {
   return cachedUser;
 }
 
-function getSnapshot(): User {
+function getSnapshot(): AccessUser {
   return readUser();
 }
 
-export function useUser(): User {
+export function useUser(): AccessUser {
   return useSyncExternalStore(EMPTY_SUBSCRIBE, getSnapshot, () => DEFAULT_USER);
 }

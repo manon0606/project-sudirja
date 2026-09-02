@@ -47,7 +47,15 @@ export default function BackofficeLoginPage() {
         // The real auth is the httpOnly session cookie set by the API.
         localStorage.setItem(
           "sudirja-user",
-          JSON.stringify({ username: admin.username, role: "manajemen", fullName: admin.fullName }),
+          JSON.stringify({
+            username: admin.username,
+            fullName: admin.fullName,
+            role: admin.role,
+            roleLabel: admin.roleLabel,
+            permissions: admin.permissions,
+            isSuperadmin: admin.isSuperadmin,
+            adminId: admin.id,
+          }),
         );
         router.push("/backoffice-sudirja/dashboard");
         return;

@@ -1,5 +1,5 @@
 import { ok, fail, requireAdmin } from "@/lib/api-helpers";
-import { toProfile } from "@/lib/auth";
+import { resolveAdminAccess, toProfile } from "@/lib/auth";
 
 export async function GET() {
   try {
@@ -7,7 +7,8 @@ export async function GET() {
     if (!current) {
       return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
     }
-    return ok({ admin: toProfile(current.admin) });
+    const access = await resolveAdminAccess(current.admin);
+    return ok({ admin: toProfile(current.admin, access) });
   } catch (error) {
     console.error("[auth/me] unexpected error:", error);
     return fail(500, "INTERNAL_ERROR", "Terjadi kesalahan server. Coba lagi nanti.");
