@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.ok || !parsed.data) {
     return fail(422, "VALIDATION_ERROR", "Data produk tidak valid.", parsed.details);
   }
-  const input = parsed.data;
+  const input = parsed.data as import("@/lib/products-service").ProdukDataFull;
 
   try {
     if (await getProdukBySku(input.sku)) {

@@ -24,20 +24,17 @@ export interface ExportableReference {
 
 /** Unduh seluruh data reference (satuan/merk/kategori) sebagai CSV detail. */
 export function downloadReferenceCsv(kind: ReferenceKind, items: ExportableReference[]): void {
+  // Referensi (satuan/merk/kategori) tidak mengelola "status/aktif" di UI —
+  // export hanya kolom identitas (Kode, Nama, + Jumlah Unit utk satuan).
   const headers =
     kind === "satuan"
-      ? ["ID", "Nama", "Jumlah Unit", "Status"]
-      : ["ID", "Nama", "Status"];
-  const rows = items.map((r) => {
-    const base = [
-      r.kode,
-      r.nama,
-      r.isActive ? "Aktif" : "Tidak Aktif",
-    ];
-    return kind === "satuan"
-      ? [r.kode, r.nama, String(r.jumlahUnit ?? 1), r.isActive ? "Aktif" : "Tidak Aktif"]
-      : base;
-  });
+      ? ["Kode", "Nama", "Jumlah Unit"]
+      : ["Kode", "Nama"];
+  const rows = items.map((r) =>
+    kind === "satuan"
+      ? [r.kode, r.nama, String(r.jumlahUnit ?? 1)]
+      : [r.kode, r.nama],
+  );
 
   const csvContent = [
     headers.join(","),
@@ -68,6 +65,9 @@ interface FailureRow {
 
 /** Minimal CSV parser — handles double-quoted fields. */
 export function parseCsv(text: string): string[][] {
+  // Buang BOM (\uFEFF) di awal — sering muncul dari file CSV (mis. Excel)
+  // dan menyebabkan kolom header pertama tak cocok dgn nama kolom.
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";

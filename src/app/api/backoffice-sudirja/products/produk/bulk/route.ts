@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       failures.push({ row: i + 1, sku: String(rawSku ?? ""), message: firstDetail });
       continue;
     }
-    const input = parsed.data;
+    const input = parsed.data as import("@/lib/products-service").ProdukDataFull;
 
     const existing = bySku.get(input.sku);
     if (existing) {

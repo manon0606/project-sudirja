@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 
 const types: PromoType[] = ["Diskon Ongkir", "Diskon Nominal", "Diskon %"];
 const emptyForm: CreatePromoInput = {
@@ -361,7 +362,7 @@ function PromoDetailModal({ promo, onClose, onEdit, onToggleStatus }: PromoDetai
               <Calendar className="w-5 h-5" style={{ color: '#27b446' }} />
               <div className="flex-1">
                 <p style={{ color: '#1a0408' }}>
-                  {format(new Date(promo.tanggalMulai), "dd MMMM yyyy", { locale: localeId })} - {format(new Date(promo.tanggalBerakhir), "dd MMMM yyyy", { locale: localeId })}
+                  {fmtWib(promo.tanggalMulai, "dd MMMM yyyy")} - {fmtWib(promo.tanggalBerakhir, "dd MMMM yyyy")}
                 </p>
               </div>
             </div>

@@ -549,19 +549,22 @@ export interface ProdukSatuanValidated {
   harga: number;
 }
 
+/** Data produk lengkap (hasil validasi penuh / create). */
+export interface ProdukDataFull {
+  sku: string;
+  nama: string;
+  deskripsi: string;
+  gambarUrl: string;
+  kategoriKode: string;
+  merkKode: string;
+  status: "active" | "inactive";
+  satuan: ProdukSatuanValidated[];
+}
+
 export interface ProdukValidation {
   ok: boolean;
   details?: Record<string, string>;
-  data?: {
-    sku: string;
-    nama: string;
-    deskripsi: string;
-    gambarUrl: string;
-    kategoriKode: string;
-    merkKode: string;
-    status: "active" | "inactive";
-    satuan: ProdukSatuanValidated[];
-  };
+  data?: Partial<ProdukDataFull>;
 }
 
 const SKU_RE = /^[A-Za-z0-9_-]{1,50}$/;
@@ -661,6 +664,24 @@ export function validateProdukBody(body: unknown, partial: boolean): ProdukValid
   }
 
   if (Object.keys(details).length > 0) return { ok: false, details };
+  // Partial (PATCH): hanya field yang dikirim yang ikut di-update; field lain
+  // dibiarkan undefined agar tidak menimpa data lama (mis. ganti status saja
+  // TIDAK boleh menghapus gambar/deskripsi/satuan). Full (POST): default diisi.
+  if (partial) {
+    return {
+      ok: true,
+      data: {
+        ...(sku !== undefined ? { sku } : {}),
+        ...(nama !== undefined ? { nama } : {}),
+        ...(deskripsi !== undefined ? { deskripsi } : {}),
+        ...(gambarUrl !== undefined ? { gambarUrl } : {}),
+        ...(kategoriKode !== undefined ? { kategoriKode } : {}),
+        ...(merkKode !== undefined ? { merkKode } : {}),
+        ...(statusValue !== undefined ? { status: statusValue } : {}),
+        ...(b.satuan !== undefined ? { satuan: satuan ?? [] } : {}),
+      },
+    };
+  }
   return {
     ok: true,
     data: {

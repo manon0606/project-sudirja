@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 
 type StatusPengiriman = "Menunggu Kurir" | "Diantar" | "Selesai";
 const STATUS_PENGIRIMAN: StatusPengiriman[] = ["Menunggu Kurir", "Diantar", "Selesai"];
@@ -506,13 +507,15 @@ export default function Commerce() {
             <div className="mt-4 flex items-center gap-4 p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Dari Tanggal</label>
-                <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPagination((p) => ({ ...p, page: 1 })); }}
+                <input type="date" value={dateFrom} max={dateTo || undefined}
+                  onChange={(e) => { const v = e.target.value; setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Sampai Tanggal</label>
-                <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPagination((p) => ({ ...p, page: 1 })); }}
+                <input type="date" value={dateTo} min={dateFrom || undefined}
+                  onChange={(e) => { const v = e.target.value; setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
@@ -578,7 +581,7 @@ export default function Commerce() {
                             </td>
                             <td className="px-6 py-4 cursor-pointer" onClick={() => setSelectedOrder(order)} style={{ color: '#27b446', fontFamily: 'monospace' }}>{order.noPesanan}</td>
                             <td className="px-6 py-4 cursor-pointer" onClick={() => setSelectedOrder(order)} style={{ color: '#1a0408' }}>
-                              {format(new Date(order.createdAt), "dd MMM yyyy, HH:mm", { locale: id })}
+                              {fmtWib(order.createdAt, "dd MMM yyyy, HH:mm")}
                             </td>
                             <td className="px-6 py-4 cursor-pointer" onClick={() => setSelectedOrder(order)} style={{ color: '#1a0408' }}>
                               <div>{order.pelanggan?.nama || "-"}</div>

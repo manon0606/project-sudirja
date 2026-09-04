@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 import AdminSidebar from "./AdminSidebar";
 import { useUser } from "./useUser";
 import { ApiClientError } from "@/lib/api-client";
@@ -154,7 +155,7 @@ export default function PesananKredit() {
       const headers = ["No. Pesanan", "Tanggal", "Kasir", "Periode Kredit", "Total Kredit", "Sudah Dibayar", "Sisa", "Status"];
       const rows = all.map((o) => [
         o.noPesanan,
-        format(new Date(o.createdAt), "dd MMM yyyy, HH:mm", { locale: id }),
+        fmtWib(o.createdAt, "dd MMM yyyy, HH:mm"),
         o.kasirNama,
         o.periodeKredit || "-",
         String(o.total),
@@ -284,19 +285,32 @@ export default function PesananKredit() {
           {showDateFilter && (
             <div className="mt-4 flex gap-4 p-4 rounded-lg border-2"
               style={{ borderColor: '#27b446', backgroundColor: 'rgba(39,180,70,0.05)' }}>
-              {[
-                { label: "Dari Tanggal", value: dateFrom, set: setDateFrom },
-                { label: "Sampai Tanggal", value: dateTo, set: setDateTo },
-              ].map(({ label, value, set }) => (
-                <div key={label} className="flex-1">
-                  <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>{label}</label>
-                  <input type="date" value={value}
-                    onChange={e => { set(e.target.value); setCurrentPage(1); }}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                    style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-                  />
-                </div>
-              ))}
+              <div className="flex-1">
+                <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Dari Tanggal</label>
+                <input type="date" value={dateFrom} max={dateTo || undefined}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setDateFrom(v);
+                    if (dateTo && v && v > dateTo) setDateTo("");
+                    setCurrentPage(1);
+                  }}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                  style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Sampai Tanggal</label>
+                <input type="date" value={dateTo} min={dateFrom || undefined}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setDateTo(v);
+                    if (dateFrom && v && v < dateFrom) setDateFrom("");
+                    setCurrentPage(1);
+                  }}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                  style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                />
+              </div>
             </div>
           )}
 
@@ -378,7 +392,7 @@ export default function PesananKredit() {
                       >
                         <td className="px-6 py-4" style={{ color: '#27b446' }}>{order.noPesanan}</td>
                         <td className="px-6 py-4" style={{ color: '#1a0408' }}>
-                          {format(new Date(order.createdAt), "dd MMM yyyy", { locale: id })}
+                          {fmtWib(order.createdAt, "dd MMM yyyy")}
                         </td>
                         <td className="px-6 py-4" style={{ color: '#1a0408' }}>
                           <div>{order.kasirNama}</div>
@@ -466,7 +480,14 @@ export default function PesananKredit() {
           order={selectedOrder}
           onClose={() => setSelectedOrder(null)}
           currentUser={user?.fullName || user?.username || "Admin"}
-          onPaymentRecorded={() => void load()}
+          onPaymentRecorded={async () => {
+            // Refresh grid + perbarui data modal (riwayat pembayaran) dari server.
+            await load();
+            try {
+              const fresh = await getKredit(selectedOrder.noPesanan);
+              if (fresh) setSelectedOrder(fresh);
+            } catch { /* list sudah refresh; abaikan bila detail gagal */ }
+          }}
         />
       )}
     </div>
@@ -547,7 +568,7 @@ function CreditDetailModal({ order, onClose, currentUser, onPaymentRecorded }: C
             {/* Meta */}
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: "Tanggal", value: format(new Date(order.createdAt), "dd MMMM yyyy, HH:mm", { locale: id }) },
+                { label: "Tanggal", value: fmtWib(order.createdAt, "dd MMMM yyyy, HH:mm") },
                 { label: "Kasir", value: `${order.kasirNama} (${order.kasirUsername})` },
                 { label: "Periode Kredit", value: period },
                 { label: "Status", value: order.status },
@@ -754,7 +775,7 @@ function CreditDetailModal({ order, onClose, currentUser, onPaymentRecorded }: C
                         return (
                           <tr key={p.id} className="border-t border-gray-100">
                             <td className="px-3 py-2 text-xs" style={{ color: '#1a0408' }}>
-                              {format(new Date(p.createdAt), "dd MMM yy, HH:mm", { locale: id })}
+                              {fmtWib(p.createdAt, "dd MMM yy, HH:mm")}
                             </td>
                             <td className="px-3 py-2 text-xs" style={{ color: '#1a0408', opacity: 0.7 }}>
                               {p.dicatatOleh || "-"}

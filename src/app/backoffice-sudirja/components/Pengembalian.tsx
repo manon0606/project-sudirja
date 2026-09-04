@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 import AdminSidebar from "./AdminSidebar";
 import { ApiClientError } from "@/lib/api-client";
 import { listRetur } from "@/lib/pesanan-api";
@@ -133,7 +134,7 @@ export default function Pengembalian() {
       const headers = ["No. Retur", "Tanggal", "No. Pesanan Asal", "Kasir", "Jenis Retur", "Alasan", "Catatan", "Total Refund", "Status"];
       const rows = all.map((r) => [
         r.noRetur,
-        format(new Date(r.createdAt), "dd MMM yyyy, HH:mm", { locale: id }),
+        fmtWib(r.createdAt, "dd MMM yyyy, HH:mm"),
         r.noPesanan,
         r.kasirNama,
         typeLabel(r.tipe),
@@ -237,21 +238,28 @@ export default function Pengembalian() {
           {showDateFilter && (
             <div className="mt-4 flex items-center gap-4 p-4 rounded-lg border-2"
               style={{ borderColor: '#27b446', backgroundColor: 'rgba(39,180,70,0.05)' }}>
-              {[
-                { label: "Dari Tanggal", value: dateFrom, setter: setDateFrom },
-                { label: "Sampai Tanggal", value: dateTo, setter: setDateTo },
-              ].map(({ label, value, setter }) => (
-                <div key={label} className="flex-1">
-                  <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>{label}</label>
-                  <input
-                    type="date"
-                    value={value}
-                    onChange={e => { setter(e.target.value); setCurrentPage(1); }}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                    style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-                  />
-                </div>
-              ))}
+              <div className="flex-1">
+                <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Dari Tanggal</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={e => { const v = e.target.value; setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setCurrentPage(1); }}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                  style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Sampai Tanggal</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={e => { const v = e.target.value; setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setCurrentPage(1); }}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                  style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                />
+              </div>
             </div>
           )}
 
@@ -330,7 +338,7 @@ export default function Pengembalian() {
                     >
                       <td className="px-6 py-4" style={{ color: '#27b446' }}>{r.noRetur}</td>
                       <td className="px-6 py-4" style={{ color: '#1a0408' }}>
-                        {format(new Date(r.createdAt), "dd MMM yyyy, HH:mm", { locale: id })}
+                        {fmtWib(r.createdAt, "dd MMM yyyy, HH:mm")}
                       </td>
                       <td className="px-6 py-4" style={{ color: '#27b446' }}>{r.noPesanan}</td>
                       <td className="px-6 py-4" style={{ color: '#1a0408' }}>
@@ -466,7 +474,7 @@ function ReturnDetailModal({ data, onClose }: { data: ReturDTO; onClose: () => v
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: "No. Pesanan Asal", value: data.noPesanan },
-              { label: "Tanggal Retur", value: format(new Date(data.createdAt), "dd MMMM yyyy, HH:mm", { locale: id }) },
+              { label: "Tanggal Retur", value: fmtWib(data.createdAt, "dd MMMM yyyy, HH:mm") },
               { label: "Kasir", value: data.kasirNama || "-" },
               { label: "Jenis Retur", value: typeLabel(data.tipe) },
               { label: "Alasan", value: data.alasan },

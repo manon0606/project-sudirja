@@ -17,6 +17,7 @@ import {
   X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2,
   RotateCcw, AlertTriangle, CheckCircle2, Printer, Download
 } from "lucide-react";
+import { fmtWib } from "@/lib/date-utils";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
 import ReceiptModal from "./ReceiptModal";
@@ -163,7 +164,7 @@ export default function Pesanan() {
       const headers = ["No. Pesanan", "Tanggal", "Kasir", "Metode Bayar", "Status", "Subtotal", "Diskon", "Total", "Uang Diterima", "Kembalian"];
       const rows = all.map((o) => [
         o.noPesanan,
-        format(new Date(o.createdAt), "dd MMM yyyy, HH:mm", { locale: id }),
+        fmtWib(o.createdAt, "dd MMM yyyy, HH:mm"),
         o.kasirNama,
         o.metodeBayar,
         o.status,
@@ -295,8 +296,11 @@ export default function Pesanan() {
                 <input
                   type="date"
                   value={dateFrom}
+                  max={dateTo || undefined}
                   onChange={(e) => {
-                    setDateFrom(e.target.value);
+                    const v = e.target.value;
+                    setDateFrom(v);
+                    if (dateTo && v && v > dateTo) setDateTo("");
                     setCurrentPage(1);
                   }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
@@ -313,8 +317,11 @@ export default function Pesanan() {
                 <input
                   type="date"
                   value={dateTo}
+                  min={dateFrom || undefined}
                   onChange={(e) => {
-                    setDateTo(e.target.value);
+                    const v = e.target.value;
+                    setDateTo(v);
+                    if (dateFrom && v && v < dateFrom) setDateFrom("");
                     setCurrentPage(1);
                   }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
@@ -428,7 +435,7 @@ export default function Pesanan() {
                         {order.noPesanan}
                       </td>
                       <td className="px-6 py-4" style={{ color: '#1a0408' }}>
-                        {format(new Date(order.createdAt), "dd MMM yyyy, HH:mm", { locale: id })}
+                        {fmtWib(order.createdAt, "dd MMM yyyy, HH:mm")}
                       </td>
                       <td className="px-6 py-4" style={{ color: '#1a0408' }}>
                         <div>
@@ -576,6 +583,7 @@ export default function Pesanan() {
       {showCreateOrderModal && (
         <CreateOrderModal
           onClose={() => setShowCreateOrderModal(false)}
+          onCreated={() => void load()}
         />
       )}
     </div>
@@ -626,7 +634,7 @@ function OrderDetailModal({ order, onClose, onRetur }: OrderDetailModalProps) {
               <div>
                 <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Tanggal & Waktu</p>
                 <p style={{ color: '#000000' }}>
-                  {format(new Date(order.createdAt), "dd MMMM yyyy, HH:mm", { locale: id })}
+                  {fmtWib(order.createdAt, "dd MMMM yyyy, HH:mm")}
                 </p>
               </div>
               <div>
@@ -1219,9 +1227,11 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
 
 interface CreateOrderModalProps {
   onClose: () => void;
+  /** Dipanggil setelah pesanan berhasil dibuat (utk me-refresh grid). */
+  onCreated?: () => void;
 }
 
-function CreateOrderModal({ onClose }: CreateOrderModalProps) {
+function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedItems, setSelectedItems] = useState<Array<{
     produkId: number | null;
@@ -1892,7 +1902,7 @@ function CreateOrderModal({ onClose }: CreateOrderModalProps) {
       {/* Receipt popup — rendered above CreateOrderModal */}
       <ReceiptModal
         isOpen={showReceipt}
-        onClose={() => { setShowReceipt(false); onClose(); }}
+        onClose={() => { setShowReceipt(false); onClose(); onCreated?.(); }}
         items={selectedItems.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))}
         subtotal={subtotal}
         discountAmount={discountAmount}

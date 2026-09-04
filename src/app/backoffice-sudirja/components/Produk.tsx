@@ -325,7 +325,10 @@ export default function Produk() {
 
   const handleStatusChange = async (sku: string, status: "active" | "inactive") => {
     try {
-      await updateProdukStatus(sku, status);
+      const updated = await updateProdukStatus(sku, status);
+      // Perbarui produk yang sedang dibuka (detail modal) dengan hasil server
+      // agar status (dan data lainnya) langsung tampil tanpa menutup popup.
+      setSelectedProduct((prev) => (prev && prev.sku === sku ? updated : prev));
       await load();
     } catch (err) {
       setListError(err instanceof ApiClientError ? err.message : "Gagal mengubah status produk.");

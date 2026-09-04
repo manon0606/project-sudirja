@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 
 type SortField = "id" | "kode" | "nama" | "kecamatan" | "created_at";
 type SortDirection = "asc" | "desc" | null;
@@ -216,7 +217,7 @@ function DetailModal({ pelanggan, onClose, onEdit }: { pelanggan: PelangganDTO; 
               </p>
             )}
             <p className="text-xs" style={{ color: '#1a0408', opacity: 0.5 }}>
-              Terdaftar {format(new Date(pelanggan.createdAt), "dd MMM yyyy", { locale: localeId })}
+              Terdaftar {fmtWib(pelanggan.createdAt, "dd MMM yyyy")}
             </p>
           </div>
         </div>

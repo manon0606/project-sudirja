@@ -6,6 +6,7 @@ import { generateLaporan } from "@/lib/laporan-api";
 import type { LaporanDTO, LaporanTipe } from "@/lib/laporan-types";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 import {
   Download, FileText, Calendar, ChevronDown, TrendingUp, TrendingDown, Wallet, RefreshCw
 } from "lucide-react";
@@ -176,12 +177,14 @@ export default function Laporan() {
               <>
                 <div>
                   <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Dari</span>
-                  <input type="date" value={customDateFrom} onChange={(e) => setCustomDateFrom(e.target.value)}
+                  <input type="date" value={customDateFrom} max={customDateTo || undefined}
+                    onChange={(e) => { const v = e.target.value; setCustomDateFrom(v); if (customDateTo && v && v > customDateTo) setCustomDateTo(""); }}
                     className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
                 </div>
                 <div>
                   <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Sampai</span>
-                  <input type="date" value={customDateTo} onChange={(e) => setCustomDateTo(e.target.value)}
+                  <input type="date" value={customDateTo} min={customDateFrom || undefined}
+                    onChange={(e) => { const v = e.target.value; setCustomDateTo(v); if (customDateFrom && v && v < customDateFrom) setCustomDateFrom(""); }}
                     className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
                 </div>
               </>
@@ -316,7 +319,7 @@ export default function Laporan() {
                         ) : report.rincian.penjualan.map((r) => (
                           <tr key={r.noPesanan} className="border-b border-gray-100 hover:bg-gray-50">
                             <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noPesanan}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{format(new Date(r.tanggal), "dd MMM HH:mm", { locale: localeId })}</td>
+                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM HH:mm")}</td>
                             <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.asal === "offline" ? "Offline" : "Online"}</td>
                             <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.asal === "commerce" ? r.namaPelanggan ?? "-" : r.kasir}</td>
                             <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.metodeBayar}</td>
@@ -344,7 +347,7 @@ export default function Laporan() {
                         ) : report.rincian.pembelian.map((r) => (
                           <tr key={r.noPembelian} className="border-b border-gray-100 hover:bg-gray-50">
                             <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noPembelian}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{format(new Date(r.tanggal), "dd MMM yyyy", { locale: localeId })}</td>
+                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM yyyy")}</td>
                             <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.supplier}</td>
                             <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{formatRp(r.totalPembelian)}</td>
                             <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{r.ppn > 0 ? `${r.ppn}%` : "-"}</td>
@@ -370,7 +373,7 @@ export default function Laporan() {
                         ) : report.rincian.konsinyasi.map((r) => (
                           <tr key={r.noKonsinyasi} className="border-b border-gray-100 hover:bg-gray-50">
                             <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noKonsinyasi}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{format(new Date(r.tanggal), "dd MMM yyyy", { locale: localeId })}</td>
+                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM yyyy")}</td>
                             <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.supplier}</td>
                             <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{formatRp(r.totalNilaiKonsinyasi)}</td>
                             <td className="px-5 py-2 text-sm text-right font-medium" style={{ color: '#e40b18' }}>{formatRp(r.totalDibayar)}</td>
@@ -395,7 +398,7 @@ export default function Laporan() {
                           <tr><td colSpan={5} className="px-5 py-10 text-center text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Tidak ada cash in/out pada periode ini.</td></tr>
                         ) : report.rincian.cashFlow.map((r, i) => (
                           <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{format(new Date(r.tanggal), "dd MMM yyyy HH:mm", { locale: localeId })}</td>
+                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM yyyy HH:mm")}</td>
                             <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noPesanan}</td>
                             <td className="px-5 py-2 text-sm">
                               <span className="px-2 py-0.5 rounded-full text-xs"

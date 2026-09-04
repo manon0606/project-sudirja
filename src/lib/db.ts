@@ -13,7 +13,7 @@ function createPool(): mysql.Pool {
   const password = process.env.MYSQL_PASSWORD ?? "";
   const database = process.env.MYSQL_DATABASE ?? "web_sudirja";
 
-  return mysql.createPool({
+  const pool = mysql.createPool({
     host,
     port,
     user,
@@ -22,9 +22,20 @@ function createPool(): mysql.Pool {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    // Seluruh value datetime diperlakukan sebagai UTC. TIMESTAMP MySQL disimpan
+    // UTC; session time_zone di-set '+00:00' agar SELECT mengembalikan UTC juga
+    // (server default SYSTEM = WIB/GMT+7). Rantai: DB (UTC) → API (ISO UTC) →
+    // frontend menampilkan lokal (GMT+7) → jam tampil benar.
     timezone: "Z",
     namedPlaceholders: false,
   });
+  // Pastikan tiap koneksi memakai session timezone UTC (bukan SYSTEM/WIB).
+  pool.on("connection", (conn) => {
+    // conn runtime = promise PoolConnection (pool promise) meski typenya callback;
+    // `.query` promise dipakai langsung.
+    void (conn as unknown as mysql.PoolConnection).query("SET time_zone = '+00:00'");
+  });
+  return pool;
 }
 
 /** Lazy singleton pool — survives HMR via globalThis, never runs at build time. */

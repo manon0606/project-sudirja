@@ -234,7 +234,14 @@ export function parsePesananListParams(params: URLSearchParams) {
   const sortByRaw = params.get("sortBy") ?? "created_at";
   const sortBy = sortByRaw in PESANAN_SORT_COLUMNS ? sortByRaw : "created_at";
   const sortOrder = params.get("sortOrder") === "asc" ? "asc" : "desc";
-  return { page, pageSize, search, status, asal, statusPengiriman, dateFrom, dateTo, sortBy, sortOrder };
+  // Jaga-jaga: tanggal akhir tidak boleh lebih kecil dari tanggal mulai.
+  // Bila invalid, filter tanggal diabaikan (semua data) + flag peringatan.
+  let dateRangeInvalid = false;
+  if (dateFrom && dateTo && dateTo < dateFrom) {
+    dateRangeInvalid = true;
+    return { page, pageSize, search, status, asal, statusPengiriman, dateFrom: "", dateTo: "", sortBy, sortOrder, dateRangeInvalid };
+  }
+  return { page, pageSize, search, status, asal, statusPengiriman, dateFrom, dateTo, sortBy, sortOrder, dateRangeInvalid: false };
 }
 
 function buildMeta(total: number, page: number, pageSize: number): PesananPaginationMeta {
@@ -295,7 +302,7 @@ export async function listPesanan(
   // Load items for all rows in one query (avoid N+1).
   const ids = rows.map((r) => r.id);
   const itemResult = await query<RowDataPacket[]>(
-    `SELECT pi.id, pi.produk_id, pi.produk_satuan_id, s.nama AS satuan_nama,
+    `SELECT pi.id, pi.pesanan_id, pi.produk_id, pi.produk_satuan_id, s.nama AS satuan_nama,
             pi.nama_produk, pi.qty, pi.harga, pi.subtotal
      FROM pesanan_item pi
      LEFT JOIN produk_satuan ps ON ps.id = pi.produk_satuan_id
@@ -396,8 +403,12 @@ export async function createPesananTx(
     // Asal pesanan & relasi pelanggan commerce.
     const asal = input.asal === "commerce" ? "commerce" : "offline";
     const isCommerce = asal === "commerce";
-    // Commerce: status utama 'Diproses' + status_pengiriman terpisah 'Menunggu Kurir'.
-    const statusUtama: PesananStatus = isCommerce ? "Diproses" : "Selesai";
+    const isKreditBayar = input.metodeBayar.trim().toLowerCase().startsWith("kredit");
+    // Status utama:
+    //  - commerce       → 'Diproses' (diproses + dikirim kurir)
+    //  - kredit (POS)   → 'Diproses' — BELUM lunas, bukan 'Selesai'
+    //  - lainnya (tunai dll) → 'Selesai'
+    const statusUtama: PesananStatus = isCommerce || isKreditBayar ? "Diproses" : "Selesai";
 
     // Commerce WAJIB terkait pelanggan dari master (pelanggan_id), bukan input bebas.
     let pelangganId: number | null = null;
@@ -722,7 +733,13 @@ export function parseKreditListParams(params: URLSearchParams) {
   const allowed = ["no_pesanan", "created_at", "kasir_nama", "total", "totalDibayar"];
   const sortBy = allowed.includes(sortByRaw) ? sortByRaw : "created_at";
   const sortOrder = params.get("sortOrder") === "asc" ? "asc" : "desc";
-  return { page, pageSize, search, dateFrom, dateTo, sortBy, sortOrder };
+  // Sama dgn pesanan: tanggal akhir tidak boleh < tanggal mulai → abaikan filter.
+  let dateRangeInvalid = false;
+  if (dateFrom && dateTo && dateTo < dateFrom) {
+    dateRangeInvalid = true;
+    return { page, pageSize, search, dateFrom: "", dateTo: "", sortBy, sortOrder, dateRangeInvalid };
+  }
+  return { page, pageSize, search, dateFrom, dateTo, sortBy, sortOrder, dateRangeInvalid: false };
 }
 
 export async function listKredit(
@@ -825,6 +842,7 @@ export async function getKreditByNo(noPesanan: string): Promise<KreditDTO | null
     dateTo: "",
     sortBy: "created_at",
     sortOrder: "desc",
+    dateRangeInvalid: false,
   });
   const found = list.items.find((k) => k.noPesanan === noPesanan);
   return found ?? null;
@@ -860,6 +878,10 @@ export async function addKreditPembayaranTx(
       `INSERT INTO kredit_pembayaran (pesanan_id, jumlah, dicatat_oleh, catatan) VALUES (?, ?, ?, ?)`,
       [pesanan.id, input.jumlah, dicatatOleh, input.catatan?.slice(0, 255) || null],
     );
+    // Bila angsuran ini melunasi seluruh sisa → tandai pesanan 'Selesai'.
+    if (input.jumlah >= sisa) {
+      await conn.query(`UPDATE pesanan SET status = 'Selesai' WHERE id = ?`, [pesanan.id]);
+    }
     return true;
   });
   if (!found) return null;
