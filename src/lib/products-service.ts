@@ -507,6 +507,23 @@ async function kodeItemExists(kodeItem: string, excludeProdukId?: number): Promi
   return rows.length > 0;
 }
 
+/**
+ * Pastikan setiap satuan produk memiliki baris `stok` (qty default 0) TANPA
+ * menyentuh baris stok yang sudah ada (sehingga qty stok tidak pernah ter-reset).
+ *
+ * Dipakai setelah insert satuan baru (create/sinkronisasi edit).
+ */
+async function ensureStokRows(conn: PoolConnection, produkId: number): Promise<void> {
+  await conn.query(
+    `INSERT INTO stok (produk_satuan_id, qty, buffer_stok)
+     SELECT ps.id, 0, 0
+     FROM produk_satuan ps
+     LEFT JOIN stok st ON st.produk_satuan_id = ps.id
+     WHERE ps.produk_id = ? AND st.id IS NULL`,
+    [produkId],
+  );
+}
+
 export async function insertProdukSatuan(
   conn: PoolConnection,
   produkId: number,
@@ -519,21 +536,65 @@ export async function insertProdukSatuan(
       .join(", ")}`,
     rows.flatMap((r) => [produkId, r.satuanId, r.kodeItem, r.harga]),
   );
-  // Feedback #4 — setiap produk (manual/bulk) otomatis mendapat baris stok
-  // per satuan (qty 0). Di sini karena dipanggil dalam transaksi yang sama
-  // dengan createProdukTx / updateProdukTx.
-  const [satuanRows] = await conn.query<RowDataPacket[]>(
-    `SELECT id FROM produk_satuan WHERE produk_id = ? ORDER BY id ASC`,
+  // Setiap satuan otomatis punya baris stok (qty 0). Baris yang sudah ada
+  // dibiarkan apa adanya — qty stok milik pengguna tidak boleh tersentuh.
+  await ensureStokRows(conn, produkId);
+}
+
+/**
+ * Sinkronkan daftar satuan produk saat EDIT (bukan delete-all + insert).
+ *
+ * Alasan: `stok.produk_satuan_id` memakai ON DELETE CASCADE. Strategi lama
+ * (hapus semua satuan lalu insert ulang) ikut menghapus baris stok sehingga
+ * qty stok ter-reset 0 setiap kali produk diedit.
+ *
+ * Strategi sekarang:
+ *  - satuan yang masih ada  → UPDATE kode_item/harga (id dipertahankan, stok aman)
+ *  - satuan baru            → INSERT + baris stok qty 0
+ *  - satuan yang dihapus    → DELETE (stok milik satuan itu memang tak berlaku lagi)
+ */
+export async function syncProdukSatuan(
+  conn: PoolConnection,
+  produkId: number,
+  rows: Array<{ satuanId: number; kodeItem: string; harga: number }>,
+): Promise<void> {
+  const [existingRows] = await conn.query<RowDataPacket[]>(
+    `SELECT id, satuan_id FROM produk_satuan WHERE produk_id = ?`,
     [produkId],
   );
-  const ids = (satuanRows as Array<{ id: number }>).map((r) => r.id);
-  if (ids.length > 0) {
+  const existingBySatuan = new Map<number, number>();
+  for (const r of existingRows as Array<{ id: number; satuan_id: number }>) {
+    existingBySatuan.set(Number(r.satuan_id), Number(r.id));
+  }
+
+  const keepIds = new Set<number>();
+  const toInsert: Array<{ satuanId: number; kodeItem: string; harga: number }> = [];
+
+  for (const r of rows) {
+    const psId = existingBySatuan.get(r.satuanId);
+    if (psId !== undefined) {
+      keepIds.add(psId);
+      // Perbarui identitas harga/kode item saja — baris & stok tetap sama.
+      await conn.query(
+        `UPDATE produk_satuan SET kode_item = ?, harga = ? WHERE id = ?`,
+        [r.kodeItem, r.harga, psId],
+      );
+    } else {
+      toInsert.push(r);
+    }
+  }
+
+  // Hapus hanya satuan yang benar-benar tidak ada lagi di payload.
+  const removedIds = [...existingBySatuan.values()].filter((id) => !keepIds.has(id));
+  if (removedIds.length > 0) {
     await conn.query(
-      `INSERT INTO stok (produk_satuan_id, qty, buffer_stok) VALUES ${ids
-        .map(() => "(?, 0, 0)")
-        .join(", ")}`,
-      ids,
+      `DELETE FROM produk_satuan WHERE id IN (${removedIds.map(() => "?").join(",")})`,
+      removedIds,
     );
+  }
+
+  if (toInsert.length > 0) {
+    await insertProdukSatuan(conn, produkId, toInsert);
   }
 }
 
@@ -751,9 +812,9 @@ export async function updateProdukTx(
       await conn.query(`UPDATE produk SET ${sets.join(", ")} WHERE id = ?`, [...params, produkId]);
     }
     if (input.satuan) {
-      // Full replacement semantics — documented in the contract.
-      await conn.query(`DELETE FROM produk_satuan WHERE produk_id = ?`, [produkId]);
-      await insertProdukSatuan(conn, produkId, input.satuan);
+      // Sinkronisasi berbasis diff — id produk_satuan yang tidak berubah
+      // dipertahankan agar baris stok (dan riwayatnya) TIDAK terhapus/reset.
+      await syncProdukSatuan(conn, produkId, input.satuan);
     }
   });
 }

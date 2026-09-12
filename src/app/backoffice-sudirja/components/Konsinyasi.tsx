@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 
 type SortField = "no_konsinyasi" | "tanggal" | "supplier" | "status" | "created_at";
 type SortDirection = "asc" | "desc" | null;
@@ -349,7 +350,7 @@ function DetailModal({ data, onClose, onSetSelesai, onDelete }: {
               <p className="text-sm mb-1 flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.6 }}>
                 <Calendar className="w-4 h-4" /> Tanggal
               </p>
-              <p style={{ color: '#1a0408' }}>{format(new Date(data.tanggal), "dd MMM yyyy", { locale: localeId })}</p>
+              <p style={{ color: '#1a0408' }}>{fmtWib(data.tanggal, "dd MMM yyyy")}</p>
               <p className="mt-2 inline-flex px-3 py-1 rounded-full text-sm"
                 style={{ backgroundColor: data.status === 'aktif' ? 'rgba(39, 180, 70, 0.1)' : '#6b7280', color: data.status === 'aktif' ? '#27b446' : 'white' }}>
                 {data.status === 'aktif' ? 'Aktif' : 'Selesai'}
@@ -741,7 +742,7 @@ export default function Konsinyasi() {
                           style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
                           <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(k)} style={{ color: '#27b446', fontFamily: 'monospace' }}>{k.noKonsinyasi}</td>
                           <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(k)} style={{ color: '#1a0408' }}>
-                            {format(new Date(k.tanggal), "dd MMM yyyy", { locale: localeId })}
+                            {fmtWib(k.tanggal, "dd MMM yyyy")}
                           </td>
                           <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(k)} style={{ color: '#1a0408' }}>
                             <div className="flex items-center gap-2"><Building2 className="w-4 h-4 shrink-0" style={{ color: '#27b446' }} />{k.supplier.nama}</div>

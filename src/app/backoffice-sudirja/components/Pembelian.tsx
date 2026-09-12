@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { fmtWib } from "@/lib/date-utils";
 
 type SortField = "no_pembelian" | "tanggal" | "supplier" | "created_at";
 type SortDirection = "asc" | "desc" | null;
@@ -338,7 +339,7 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
               <p className="text-sm mb-1 flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.6 }}>
                 <Calendar className="w-4 h-4" /> Tanggal
               </p>
-              <p style={{ color: '#1a0408' }}>{format(new Date(data.tanggal), "dd MMM yyyy", { locale: localeId })}</p>
+              <p style={{ color: '#1a0408' }}>{fmtWib(data.tanggal, "dd MMM yyyy")}</p>
             </div>
           </div>
 
@@ -691,7 +692,7 @@ export default function Pembelian() {
                           style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
                           <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(p)} style={{ color: '#27b446', fontFamily: 'monospace' }}>{p.noPembelian}</td>
                           <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(p)} style={{ color: '#1a0408' }}>
-                            {format(new Date(p.tanggal), "dd MMM yyyy", { locale: localeId })}
+                            {fmtWib(p.tanggal, "dd MMM yyyy")}
                           </td>
                           <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(p)} style={{ color: '#1a0408' }}>
                             <div className="flex items-center gap-2"><Building2 className="w-4 h-4 shrink-0" style={{ color: '#27b446' }} />{p.supplier.nama}</div>
