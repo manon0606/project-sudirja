@@ -43,6 +43,10 @@ export function updateKonsinyasiStatus(id: number, status: KonsinyasiStatus): Pr
   return apiFetch(`/api/backoffice-sudirja/konsinyasi/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
 }
 
+export function returKonsinyasi(id: number, items: Array<{ id: number; qtyReturn: number }>): Promise<KonsinyasiDTO> {
+  return apiFetch(`/api/backoffice-sudirja/konsinyasi/${id}/retur`, { method: "POST", body: JSON.stringify({ items }) });
+}
+
 export function deleteKonsinyasi(id: number): Promise<{ message: string }> {
   return apiFetch(`/api/backoffice-sudirja/konsinyasi/${id}`, { method: "DELETE" });
 }

@@ -1,10 +1,12 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
+import DatePicker from "./DatePicker";
 import { ApiClientError } from "@/lib/api-client";
 import {
   bulkCreateKonsinyasi, createKonsinyasi, deleteKonsinyasi, downloadKonsinyasiCsv,
-  listKonsinyasi, updateKonsinyasiStatus,
+  listKonsinyasi, returKonsinyasi, updateKonsinyasiStatus,
 } from "@/lib/konsinyasi-api";
 import { listSupplier } from "@/lib/supplier-api";
 import { listProduk } from "@/lib/product-api";
@@ -14,8 +16,8 @@ import type { SupplierDTO } from "@/lib/supplier-types";
 import type { ProdukDTO } from "@/lib/product-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
-  X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2,
-  Download, Upload, Building2, CheckCircle, Calendar
+  X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2, Eye,
+  Download, Upload, Building2, Calendar, Undo2, AlertCircle
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -60,12 +62,14 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
   const [supplierId, setSupplierId] = useState("");
   const [catatan, setCatatan] = useState("");
   const [items, setItems] = useState<DraftItem[]>([]);
+  const [satuanErrors, setSatuanErrors] = useState<Record<number, string>>({});
   const [searchQ, setSearchQ] = useState("");
   const [results, setResults] = useState<ProdukDTO[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const productListRef = useRef<HTMLDivElement>(null);
 
   // Search produk master (sku/nama) → auto harga jual = harga terkecil.
   useEffect(() => {
@@ -82,17 +86,25 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
     return () => { cancelled = true; clearTimeout(t); };
   }, [searchQ]);
 
+  // Auto-scroll ke item terbaru saat produk ditambahkan.
+  useEffect(() => {
+    if (!productListRef.current || items.length === 0) return;
+    const t = setTimeout(() => {
+      productListRef.current?.scrollTo({ top: productListRef.current.scrollHeight, behavior: "smooth" });
+    }, 100);
+    return () => clearTimeout(t);
+  }, [items.length]);
+
   const addProduk = (p: ProdukDTO) => {
-    if (items.some((i) => i.sku === p.sku)) { setError("Produk sudah ditambahkan."); return; }
     const satuanOptions = p.satuan.map((s) => ({ produkSatuanId: s.id, satuanNama: s.satuanNama, harga: s.harga }));
-    // Default: satuan pertama (paling kecil id / urutan produk_satuan).
-    const defaultSat = satuanOptions[0] ?? null;
-    const hargaJual = satuanOptions.length ? Math.min(...satuanOptions.map((s) => s.harga)) : 0;
-    setItems([...items, {
+    const hargaTerkecil = satuanOptions.length ? Math.min(...satuanOptions.map((s) => s.harga)) : 0;
+    // Produk boleh muncul lebih dari sekali asalkan satuan berbeda
+    // (mis. Pcs & Dus) — stok konsinyasi ditambahkan per produk_satuan.
+    setItems((prev) => [...prev, {
       produkId: p.id, sku: p.sku, nama: p.nama, qty: 1, hargaBeli: 0,
-      hargaJual: defaultSat ? defaultSat.harga : hargaJual,
+      hargaJual: hargaTerkecil,
       satuanOptions: satuanOptions.length ? satuanOptions : [{ produkSatuanId: 0, satuanNama: "(tanpa satuan)", harga: 0 }],
-      produkSatuanId: defaultSat ? defaultSat.produkSatuanId : null,
+      produkSatuanId: null, // satuan wajib dipilih per item.
     }]);
     setSearchQ("");
     setShowResults(false);
@@ -103,7 +115,37 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
     setItems(items.map((it, i) => i === idx ? { ...it, ...patch } : it));
   };
 
-  const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
+  // Ganti satuan item: deteksi konflik (sku + satuan sama dengan baris lain)
+  // dan isi harga jual default dari satuan terpilih.
+  const changeSatuan = (idx: number, value: string) => {
+    const psId = value === "" ? null : Number(value);
+    const item = items[idx];
+    const opt = item.satuanOptions.find((o) => o.produkSatuanId === psId);
+    const conflict = psId !== null
+      && items.some((other, i) => i !== idx && other.sku === item.sku && other.produkSatuanId === psId);
+    setSatuanErrors((prev) => {
+      const next = { ...prev };
+      if (conflict) next[idx] = `Satuan "${opt?.satuanNama ?? value}" sudah digunakan untuk produk ini`;
+      else delete next[idx];
+      return next;
+    });
+    setItems((prev) => prev.map((it, i) => i === idx
+      ? { ...it, produkSatuanId: psId, hargaJual: opt ? opt.harga : it.hargaJual }
+      : it));
+  };
+
+  const removeItem = (idx: number) => {
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+    setSatuanErrors((prev) => {
+      const next: Record<number, string> = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const ki = parseInt(k, 10);
+        if (ki < idx) next[ki] = v;
+        else if (ki > idx) next[ki - 1] = v;
+      });
+      return next;
+    });
+  };
 
   const submit = async () => {
     setError("");
@@ -114,6 +156,19 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
       if (!it.produkSatuanId) { setError(`Pilih satuan produk untuk ${it.nama}.`); return; }
       if (!it.hargaBeli || it.hargaBeli < 0) { setError(`Harga beli untuk ${it.nama} wajib diisi.`); return; }
       if (!it.hargaJual || it.hargaJual < 0) { setError(`Harga jual untuk ${it.nama} wajib diisi.`); return; }
+    }
+    if (Object.keys(satuanErrors).length > 0) {
+      setError("Terdapat konflik satuan pada produk. Periksa kembali pilihan satuan.");
+      return;
+    }
+    const seenKeys = new Set<string>();
+    for (const it of items) {
+      const key = `${it.sku}||${it.produkSatuanId}`;
+      if (seenKeys.has(key)) {
+        setError(`Produk "${it.nama}" dengan satuan yang sama sudah ada lebih dari sekali.`);
+        return;
+      }
+      seenKeys.add(key);
     }
     setBusy(true);
     try {
@@ -136,177 +191,239 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
   const inputStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as any;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[94vh] overflow-hidden shadow-2xl flex flex-col">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h2 style={{ color: '#000000' }}>Buat Konsinyasi Baru</h2>
-            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Titipan barang dari supplier</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-6xl mx-4 h-[98vh] overflow-hidden shadow-2xl flex flex-col">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <h2 style={{ color: '#000000' }}>Buat Konsinyasi Baru</h2>
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
-        <div className="overflow-y-auto px-6 py-4 flex-1">
-          <div className="space-y-5">
-            {/* Info dasar */}
-            <div className="grid grid-cols-2 gap-4">
-              <label>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal *</span>
-                <input type="date" value={tanggal} onChange={(e) => setTanggal(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-              </label>
-              <label>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Supplier *</span>
-                <div className="relative">
-                  <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
-                    className="appearance-none w-full pl-4 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer" style={inputStyle}>
-                    <option value="">-- Pilih Supplier --</option>
-                    {suppliers.map((s) => (
-                      <option key={s.id} value={s.id}>{s.nama} ({s.kode}){s.kota ? ` — ${s.kota}` : ""}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
-                </div>
-              </label>
-              <label className="col-span-2">
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Catatan</span>
-                <input value={catatan} onChange={(e) => setCatatan(e.target.value)} placeholder="Catatan (opsional)"
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-              </label>
-            </div>
-
-            {/* Cari produk */}
+      {/* Content */}
+      <div className="overflow-y-auto flex-1 px-6 py-4">
+        <div className="space-y-6">
+          {/* Info dasar */}
+          <div className="grid grid-cols-3 gap-4">
             <div>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Cari Produk (dari produk master)</span>
+              <label className="block mb-2" style={{ color: '#000000' }}>
+                Nomor Konsinyasi <span style={{ color: '#e40b18' }}>*</span>
+              </label>
+              <input type="text" value="" disabled placeholder="Otomatis (dibuat sistem)"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 cursor-not-allowed"
+                style={{ color: '#1a0408', backgroundColor: '#f9fafb', opacity: 0.8 }} />
+            </div>
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>
+                Tanggal <span style={{ color: '#e40b18' }}>*</span>
+              </label>
+              <DatePicker value={tanggal} onChange={(v) => setTanggal(v)}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                style={inputStyle} />
+            </div>
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>
+                Supplier <span style={{ color: '#e40b18' }}>*</span>
+              </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
-                <input value={searchQ} onChange={(e) => { setSearchQ(e.target.value); setShowResults(true); }} onFocus={() => setShowResults(true)}
-                  placeholder="Ketik SKU atau nama produk..."
-                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-                {searching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#1a0408', opacity: 0.5 }}>Mencari...</span>}
-                {showResults && results.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-56 overflow-y-auto">
-                    {results.map((p) => (
-                      <button key={p.id} type="button" onClick={() => addProduk(p)}
-                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p style={{ color: '#1a0408' }}>{p.nama}</p>
-                            <p className="text-xs font-mono" style={{ color: '#27b446' }}>{p.sku}</p>
-                          </div>
-                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.7 }}>
-                            Harga jual: {p.satuan.length ? formatRp(Math.min(...p.satuan.map((s) => s.harga))) : "—"}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
+                  className="appearance-none w-full pl-4 pr-10 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
+                  style={inputStyle}>
+                  <option value="">-- Pilih Supplier --</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nama} ({s.kode}){s.kota ? ` — ${s.kota}` : ""}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#27b446' }} />
               </div>
             </div>
+            <div className="col-span-3">
+              <label className="block mb-2" style={{ color: '#000000' }}>Catatan</label>
+              <input value={catatan} onChange={(e) => setCatatan(e.target.value)} placeholder="Catatan (opsional)"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                style={inputStyle} />
+            </div>
+          </div>
 
-            {/* Items */}
-            <div>
-              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Item Konsinyasi ({items.length})</span>
-              {items.length === 0 ? (
-                <div className="p-6 text-center rounded-lg border border-dashed" style={{ borderColor: '#d1d5db' }}>
-                  <p className="text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Belum ada produk. Cari & tambahkan produk di atas.</p>
+          {/* Cari produk */}
+          <div>
+            <label className="block mb-2" style={{ color: '#000000' }}>Tambah Produk</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
+              <input value={searchQ} onChange={(e) => { setSearchQ(e.target.value); setShowResults(true); }} onFocus={() => setShowResults(true)}
+                placeholder="Cari produk berdasarkan SKU atau nama..."
+                className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                style={inputStyle} />
+              {searching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#1a0408', opacity: 0.5 }}>Mencari...</span>}
+              {showResults && results.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+                  {results.map((p) => (
+                    <button key={p.id} type="button" onClick={() => addProduk(p)}
+                      className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p style={{ color: '#1a0408' }}>{p.nama}</p>
+                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>SKU: {p.sku}</p>
+                        </div>
+                        <p style={{ color: '#27b446' }}>
+                          {p.satuan.length ? formatRp(Math.min(...p.satuan.map((s) => s.harga))) : "—"}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs" style={{ color: '#1a0408' }}>Produk</th>
-                        <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Qty</th>
-                        <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Harga Beli</th>
-                        <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Harga Jual</th>
-                        <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((it, idx) => (
-                        <tr key={it.sku} className="border-b border-gray-100 last:border-0">
-                          <td className="px-4 py-2">
+              )}
+            </div>
+          </div>
+
+          {/* Items */}
+          {items.length > 0 && (
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>Produk Dipilih ({items.length})</label>
+              <div ref={productListRef} className="border border-gray-200 rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
+                <table className="w-full">
+                  <thead style={{ backgroundColor: '#f9fafb' }}>
+                    <tr>
+                      <th className="px-4 py-3 text-left" style={{ color: '#000000' }}>Produk</th>
+                      <th className="px-4 py-3 text-center" style={{ color: '#000000', whiteSpace: 'nowrap' }}>Satuan <span style={{ color: '#e40b18' }}>*</span></th>
+                      <th className="px-4 py-3 text-center" style={{ color: '#000000', whiteSpace: 'nowrap' }}>Qty Konsinyasi</th>
+                      <th className="px-4 py-3 text-right" style={{ color: '#000000', whiteSpace: 'nowrap' }}>Harga Beli</th>
+                      <th className="px-4 py-3 text-right" style={{ color: '#000000', whiteSpace: 'nowrap' }}>Harga Jual</th>
+                      <th className="px-4 py-3 text-right" style={{ color: '#000000', whiteSpace: 'nowrap' }}>Total Nilai</th>
+                      <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it, idx) => {
+                      const hasSatuanError = !!satuanErrors[idx];
+                      const usedBySameSku = items
+                        .filter((_, i) => i !== idx)
+                        .filter((other) => other.sku === it.sku && other.produkSatuanId)
+                        .map((other) => other.produkSatuanId);
+                      return (
+                        <tr key={`${it.sku}-${idx}`} className="border-t border-gray-200">
+                          <td className="px-4 py-3" style={{ minWidth: 160 }}>
                             <p style={{ color: '#1a0408' }}>{it.nama}</p>
-                            <p className="text-xs font-mono mb-1" style={{ color: '#27b446' }}>{it.sku}</p>
-                            {it.satuanOptions.length > 1 ? (
+                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>{it.sku}</p>
+                          </td>
+                          <td className="px-4 py-3" style={{ minWidth: 130 }}>
+                            <div className="relative">
                               <select
                                 value={String(it.produkSatuanId ?? "")}
-                                onChange={(e) => {
-                                  const psId = Number(e.target.value);
-                                  const opt = it.satuanOptions.find((o) => o.produkSatuanId === psId);
-                                  updateItem(idx, { produkSatuanId: psId, hargaJual: opt ? opt.harga : it.hargaJual });
-                                }}
-                                className="w-full px-2 py-1 rounded border border-gray-300 text-xs focus:outline-none focus:ring-2"
-                                style={inputStyle}
+                                onChange={(e) => changeSatuan(idx, e.target.value)}
+                                className="w-full appearance-none pl-3 pr-8 py-1.5 rounded-lg border focus:outline-none focus:ring-2 cursor-pointer text-sm"
+                                style={{
+                                  borderColor: hasSatuanError ? '#e40b18' : it.produkSatuanId ? '#27b446' : '#d1d5db',
+                                  color: it.produkSatuanId ? '#1a0408' : '#9ca3af',
+                                  backgroundColor: hasSatuanError ? '#fff5f5' : '#ffffff',
+                                  '--tw-ring-color': hasSatuanError ? '#e40b18' : '#27b446',
+                                } as React.CSSProperties}
                               >
-                                {it.satuanOptions.map((o) => (
-                                  <option key={o.produkSatuanId} value={o.produkSatuanId}>{o.satuanNama}</option>
-                                ))}
+                                <option value="">Pilih Satuan</option>
+                                {it.satuanOptions.map((o) => {
+                                  const used = usedBySameSku.includes(o.produkSatuanId);
+                                  return (
+                                    <option key={o.produkSatuanId} value={o.produkSatuanId} disabled={used}
+                                      style={{ color: used ? '#9ca3af' : '#1a0408' }}>
+                                      {o.satuanNama}{used ? " (terpakai)" : ""}
+                                    </option>
+                                  );
+                                })}
                               </select>
-                            ) : (
-                              <span className="inline-flex px-2 py-0.5 rounded text-xs" style={{ backgroundColor: '#f3f4f6', color: '#1a0408' }}>
-                                {it.satuanOptions[0]?.satuanNama ?? "-"}
-                              </span>
+                              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+                                style={{ color: hasSatuanError ? '#e40b18' : it.produkSatuanId ? '#27b446' : '#9ca3af' }} />
+                            </div>
+                            {hasSatuanError && (
+                              <p className="text-xs mt-1" style={{ color: '#e40b18' }}>{satuanErrors[idx]}</p>
                             )}
                           </td>
-                          <td className="px-4 py-2">
-                            <div className="flex items-center justify-center gap-1">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-2">
                               <button type="button" onClick={() => updateItem(idx, { qty: Math.max(1, it.qty - 1) })}
-                                className="w-7 h-7 rounded border flex items-center justify-center" style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
-                                <Minus className="w-3.5 h-3.5" />
+                                className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-gray-50"
+                                style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+                                <Minus className="w-4 h-4" />
                               </button>
-                              <input type="number" value={it.qty} min={1} onChange={(e) => updateItem(idx, { qty: Math.max(1, Number(e.target.value) || 1) })}
-                                className="w-14 text-center rounded border border-gray-300 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
+                              <input type="number" value={it.qty} min={1}
+                                onChange={(e) => updateItem(idx, { qty: Math.max(1, Number(e.target.value) || 1) })}
+                                className="w-16 text-center px-2 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                                style={inputStyle} />
                               <button type="button" onClick={() => updateItem(idx, { qty: it.qty + 1 })}
-                                className="w-7 h-7 rounded border flex items-center justify-center" style={{ borderColor: '#27b446', color: '#27b446' }}>
-                                <Plus className="w-3.5 h-3.5" />
+                                className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-gray-50"
+                                style={{ borderColor: '#27b446', color: '#27b446' }}>
+                                <Plus className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
-                          <td className="px-4 py-2">
-                            <input type="number" value={it.hargaBeli || ""} onChange={(e) => updateItem(idx, { hargaBeli: Number(e.target.value) })}
-                              placeholder="0" className="w-full text-right rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
+                          <td className="px-4 py-3">
+                            <input type="number" value={it.hargaBeli || ""} placeholder="0"
+                              onChange={(e) => updateItem(idx, { hargaBeli: Number(e.target.value) })}
+                              className="w-full text-right px-2 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                              style={inputStyle} />
                           </td>
-                          <td className="px-4 py-2">
-                            <input type="number" value={it.hargaJual || ""} onChange={(e) => updateItem(idx, { hargaJual: Number(e.target.value) })}
-                              placeholder="0" className="w-full text-right rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
+                          <td className="px-4 py-3">
+                            <input type="number" value={it.hargaJual || ""} placeholder="0"
+                              onChange={(e) => updateItem(idx, { hargaJual: Number(e.target.value) })}
+                              className="w-full text-right px-2 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                              style={inputStyle} />
                           </td>
-                          <td className="px-4 py-2 text-center">
-                            <button type="button" onClick={() => removeItem(idx)} className="p-1.5 rounded-lg border" style={{ borderColor: '#e40b18', color: '#e40b18' }}>
+                          <td className="px-4 py-3 text-right" style={{ color: '#000000', whiteSpace: 'nowrap' }}>
+                            {formatRp(it.hargaBeli * it.qty)}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button type="button" onClick={() => removeItem(idx)}
+                              className="w-8 h-8 rounded-lg border flex items-center justify-center mx-auto transition-colors hover:bg-red-50"
+                              style={{ borderColor: '#e40b18', color: '#e40b18' }}>
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {error && (
-              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
-                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
 
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border transition-colors" style={{ borderColor: '#1a0408', color: '#1a0408' }}>Batal</button>
-          <button onClick={() => void submit()} disabled={busy}
-            className="px-6 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#27b446' }}>
-            {busy ? "Menyimpan..." : "Simpan Konsinyasi"}
-          </button>
+          {items.length === 0 && (
+            <div className="p-6 text-center rounded-lg border border-dashed" style={{ borderColor: '#d1d5db' }}>
+              <p className="text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Belum ada produk. Cari & tambahkan produk di atas.</p>
+            </div>
+          )}
+
+          {/* Total Summary */}
+          {items.length > 0 && (
+            <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+              <div className="flex justify-between items-center">
+                <span style={{ color: '#000000' }}>Total Nilai Konsinyasi</span>
+                <span className="text-xl" style={{ color: '#27b446' }}>
+                  {formatRp(items.reduce((sum, it) => sum + it.hargaBeli * it.qty, 0))}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+              <p className="text-sm">⚠ {error}</p>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+        <button onClick={onClose} className="flex-1 py-3 rounded-lg border transition-colors"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}>Batal</button>
+        <button onClick={() => void submit()} disabled={busy}
+          className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ backgroundColor: '#27b446' }}>
+          {busy ? "Menyimpan..." : "Simpan Konsinyasi"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -323,110 +440,114 @@ function DetailModal({ data, onClose, onSetSelesai, onDelete }: {
   const totalBeli = data.items.reduce((s, it) => s + it.hargaBeli * it.qtyKonsinyasi, 0);
   const totalTerjual = data.items.reduce((s, it) => s + it.hargaBeli * it.qtyTerjual, 0);
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h2 style={{ color: '#000000' }}>Detail Konsinyasi</h2>
-            <p style={{ color: '#27b446', fontFamily: 'monospace' }}>{data.noKonsinyasi}</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
-            <X className="w-5 h-5" />
-          </button>
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-5xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h2 style={{ color: '#000000' }}>Detail Konsinyasi</h2>
+          <p style={{ color: '#27b446', fontFamily: 'monospace' }}>{data.noKonsinyasi}</p>
         </div>
-        <div className="overflow-y-auto px-6 py-4 flex-1">
-          {/* Header info */}
-          <div className="grid grid-cols-2 gap-4 mb-5">
-            <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
-              <p className="text-sm mb-1 flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.6 }}>
-                <Building2 className="w-4 h-4" /> Supplier
-              </p>
-              <p className="font-medium" style={{ color: '#000000' }}>{data.supplier.nama}</p>
-              <p className="text-xs font-mono" style={{ color: '#27b446' }}>{data.supplier.kode}</p>
-              {data.supplier.kota && <p className="text-xs mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>{data.supplier.kota}</p>}
-            </div>
-            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-              <p className="text-sm mb-1 flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.6 }}>
-                <Calendar className="w-4 h-4" /> Tanggal
-              </p>
-              <p style={{ color: '#1a0408' }}>{fmtWib(data.tanggal, "dd MMM yyyy")}</p>
-              <p className="mt-2 inline-flex px-3 py-1 rounded-full text-sm"
-                style={{ backgroundColor: data.status === 'aktif' ? 'rgba(39, 180, 70, 0.1)' : '#6b7280', color: data.status === 'aktif' ? '#27b446' : 'white' }}>
-                {data.status === 'aktif' ? 'Aktif' : 'Selesai'}
-              </p>
-            </div>
-          </div>
-
-          {/* Items */}
-          <div className="rounded-lg border border-gray-200 overflow-hidden mb-5">
-            <table className="w-full">
-              <thead style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs" style={{ color: '#1a0408' }}>Produk</th>
-                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Qty</th>
-                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Terjual</th>
-                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Kembali</th>
-                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>H.Beli</th>
-                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>H.Jual</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.map((it) => (
-                  <tr key={it.id} className="border-b border-gray-100 last:border-0">
-                    <td className="px-4 py-2">
-                      <p style={{ color: '#1a0408' }}>{it.namaProduk}</p>
-                      <p className="text-xs font-mono" style={{ color: '#27b446' }}>{it.sku}</p>
-                    </td>
-                    <td className="px-4 py-2 text-center" style={{ color: '#1a0408' }}>{it.qtyKonsinyasi}</td>
-                    <td className="px-4 py-2 text-center" style={{ color: '#27b446' }}>{it.qtyTerjual}</td>
-                    <td className="px-4 py-2 text-center" style={{ color: '#e40b18' }}>{it.qtyDikembalikan}</td>
-                    <td className="px-4 py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(it.hargaBeli)}</td>
-                    <td className="px-4 py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(it.hargaJual)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Total */}
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1 px-6 py-4">
+        {/* Header info */}
+        <div className="grid grid-cols-2 gap-4 mb-5">
           <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
-            <div className="flex justify-between text-sm mb-1">
-              <span style={{ color: '#1a0408' }}>Total Nilai Konsinyasi (harga beli)</span>
-              <span style={{ color: '#1a0408' }}>{formatRp(totalBeli)}</span>
-            </div>
-            <div className="flex justify-between text-sm mb-1">
-              <span style={{ color: '#1a0408' }}>Nilai Terjual (yang dibayar ke supplier)</span>
-              <span style={{ color: '#27b446' }}>{formatRp(totalTerjual)}</span>
-            </div>
-            {data.catatan && (
-              <p className="text-sm mt-2 pt-2 border-t border-gray-200" style={{ color: '#1a0408', opacity: 0.7 }}>
-                Catatan: {data.catatan}
-              </p>
-            )}
+            <p className="text-sm mb-1 flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.6 }}>
+              <Building2 className="w-4 h-4" /> Supplier
+            </p>
+            <p className="font-medium" style={{ color: '#000000' }}>{data.supplier.nama}</p>
+            <p className="text-xs font-mono" style={{ color: '#27b446' }}>{data.supplier.kode}</p>
+            {data.supplier.kota && <p className="text-xs mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>{data.supplier.kota}</p>}
+          </div>
+          <div className="p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+            <p className="text-sm mb-1 flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.6 }}>
+              <Calendar className="w-4 h-4" /> Tanggal
+            </p>
+            <p style={{ color: '#1a0408' }}>{fmtWib(data.tanggal, "dd MMM yyyy")}</p>
+            <p className="mt-2 inline-flex px-3 py-1 rounded-full text-sm"
+              style={{ backgroundColor: data.status === 'aktif' ? 'rgba(39, 180, 70, 0.1)' : '#6b7280', color: data.status === 'aktif' ? '#27b446' : 'white' }}>
+              {data.status === 'aktif' ? 'Aktif' : 'Selesai'}
+            </p>
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between gap-3">
-          <div className="flex gap-2">
-            {data.status === "aktif" && (
-              <button onClick={() => onSetSelesai(data.id)}
-                className="px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
-                style={{ borderColor: '#3b82f6', color: '#3b82f6' }}>
-                Tandai Selesai
-              </button>
-            )}
-            <button onClick={() => onDelete(data.id)}
-              className="px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
-              style={{ borderColor: '#e40b18', color: '#e40b18' }}>
-              Hapus
-            </button>
+        {/* Items */}
+        <div className="rounded-lg border border-gray-200 overflow-hidden mb-5">
+          <table className="w-full">
+            <thead style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+              <tr>
+                <th className="px-4 py-2 text-left text-xs" style={{ color: '#1a0408' }}>Produk</th>
+                <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Satuan</th>
+                <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Qty</th>
+                <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Terjual</th>
+                <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Kembali</th>
+                <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>H.Beli</th>
+                <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>H.Jual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((it) => (
+                <tr key={it.id} className="border-b border-gray-100 last:border-0">
+                  <td className="px-4 py-2">
+                    <p style={{ color: '#1a0408' }}>{it.namaProduk}</p>
+                    <p className="text-xs font-mono" style={{ color: '#27b446' }}>{it.sku}</p>
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium"
+                      style={{ backgroundColor: '#f0fdf4', color: '#27b446', border: '1px solid #d1fae5' }}>
+                      {it.satuanNama || '-'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-center" style={{ color: '#1a0408' }}>{it.qtyKonsinyasi}</td>
+                  <td className="px-4 py-2 text-center" style={{ color: '#27b446' }}>{it.qtyTerjual}</td>
+                  <td className="px-4 py-2 text-center" style={{ color: '#e40b18' }}>{it.qtyDikembalikan}</td>
+                  <td className="px-4 py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(it.hargaBeli)}</td>
+                  <td className="px-4 py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(it.hargaJual)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Total */}
+        <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+          <div className="flex justify-between text-sm mb-1">
+            <span style={{ color: '#1a0408' }}>Total Nilai Konsinyasi (harga beli)</span>
+            <span style={{ color: '#1a0408' }}>{formatRp(totalBeli)}</span>
           </div>
-          <button onClick={onClose} className="px-5 py-2 rounded-lg border transition-colors"
-            style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Tutup</button>
+          <div className="flex justify-between text-sm mb-1">
+            <span style={{ color: '#1a0408' }}>Nilai Terjual (yang dibayar ke supplier)</span>
+            <span style={{ color: '#27b446' }}>{formatRp(totalTerjual)}</span>
+          </div>
+          {data.catatan && (
+            <p className="text-sm mt-2 pt-2 border-t border-gray-200" style={{ color: '#1a0408', opacity: 0.7 }}>
+              Catatan: {data.catatan}
+            </p>
+          )}
         </div>
       </div>
-    </div>
+
+      <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between gap-3">
+        <div className="flex gap-2">
+          {data.status === "aktif" && (
+            <button onClick={() => onSetSelesai(data.id)}
+              className="px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
+              style={{ borderColor: '#3b82f6', color: '#3b82f6' }}>
+              Tandai Selesai
+            </button>
+          )}
+          <button onClick={() => onDelete(data.id)}
+            className="px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}>
+            Hapus
+          </button>
+        </div>
+        <button onClick={onClose} className="px-5 py-2 rounded-lg border transition-colors"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}>Tutup</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -451,6 +572,7 @@ export default function Konsinyasi() {
   const [showCreate, setShowCreate] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [viewing, setViewing] = useState<KonsinyasiDTO | null>(null);
+  const [returning, setReturning] = useState<KonsinyasiDTO | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -476,6 +598,20 @@ export default function Konsinyasi() {
   }, [pagination.page, pagination.pageSize, debouncedSearch, statusFilter, dateFrom, dateTo, sortField, sortDirection]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Pengembalian sisa konsinyasi (retur sebagian/penuh) dari grid.
+  const prosesRetur = async (id: number, items: Array<{ id: number; qtyReturn: number }>) => {
+    setBusy(true);
+    try {
+      await returKonsinyasi(id, items);
+      setReturning(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiClientError ? e.message : "Gagal memproses pengembalian konsinyasi.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Load supplier (utk create manual).
   useEffect(() => {
@@ -658,13 +794,13 @@ export default function Konsinyasi() {
             </div>
             <div className="relative">
               <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPagination((p) => ({ ...p, page: 1 })); }}
-                className="appearance-none pl-4 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}>
+                className="appearance-none pl-3 pr-8 py-2 rounded-lg border-2 focus:outline-none focus:ring-2 cursor-pointer"
+                style={{ color: '#1a0408', borderColor: '#27b446', '--tw-ring-color': '#27b446' } as any}>
                 <option value="">Semua Status</option>
                 <option value="aktif">Aktif</option>
                 <option value="selesai">Selesai</option>
               </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#27b446' }} />
             </div>
             <button onClick={() => setShowDateFilter(!showDateFilter)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors"
@@ -682,13 +818,15 @@ export default function Konsinyasi() {
             <div className="mt-4 flex items-center gap-4 p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Dari Tanggal</label>
-                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => { const v = e.target.value; setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setPagination((p) => ({ ...p, page: 1 })); }}
+                <DatePicker value={dateFrom} max={dateTo || undefined}
+                  onChange={(v) => { setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Sampai Tanggal</label>
-                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => { const v = e.target.value; setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setPagination((p) => ({ ...p, page: 1 })); }}
+                <DatePicker value={dateTo} min={dateFrom || undefined}
+                  onChange={(v) => { setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
@@ -703,15 +841,15 @@ export default function Konsinyasi() {
               <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
             </div>
           )}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             {loading ? (
               <div className="py-16 text-center"><p style={{ color: '#1a0408', opacity: 0.6 }}>Memuat data konsinyasi...</p></div>
             ) : items.length > 0 ? (
               <>
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead>
-                      <tr style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
+                    <thead style={{ backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
+                      <tr>
                         <th className="px-6 py-4 text-left">
                           <button onClick={() => handleSort("no_konsinyasi")} className="flex items-center gap-2 hover:opacity-70 transition-opacity" style={{ color: '#000000' }}>
                             No. Konsinyasi {getSortIcon("no_konsinyasi")}
@@ -737,30 +875,41 @@ export default function Konsinyasi() {
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((k, index) => (
-                        <tr key={k.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                          style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
-                          <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(k)} style={{ color: '#27b446', fontFamily: 'monospace' }}>{k.noKonsinyasi}</td>
-                          <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(k)} style={{ color: '#1a0408' }}>
+                      {items.map((k) => (
+                        <tr key={k.id} className="border-b border-gray-200 cursor-pointer transition-colors hover:bg-gray-50"
+                          onClick={() => setViewing(k)}>
+                          <td className="px-6 py-4" style={{ color: '#27b446', fontFamily: 'monospace' }}>{k.noKonsinyasi}</td>
+                          <td className="px-6 py-4" style={{ color: '#1a0408' }}>
                             {fmtWib(k.tanggal, "dd MMM yyyy")}
                           </td>
-                          <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(k)} style={{ color: '#1a0408' }}>
+                          <td className="px-6 py-4" style={{ color: '#1a0408' }}>
                             <div className="flex items-center gap-2"><Building2 className="w-4 h-4 shrink-0" style={{ color: '#27b446' }} />{k.supplier.nama}</div>
                             <p className="text-xs font-mono" style={{ color: '#27b446' }}>{k.supplier.kode}</p>
                           </td>
                           <td className="px-6 py-4 text-center" style={{ color: '#1a0408' }}>{k.items.length} item</td>
                           <td className="px-6 py-4 text-center">
-                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
-                              style={{ backgroundColor: k.status === 'aktif' ? 'rgba(39, 180, 70, 0.1)' : '#f3f4f6', color: k.status === 'aktif' ? '#27b446' : '#6b7280' }}>
-                              {k.status === 'aktif' ? <CheckCircle className="w-4 h-4" /> : null}
+                            <span className="inline-block px-3 py-1 rounded-full text-sm text-white"
+                              style={{ backgroundColor: k.status === 'aktif' ? '#27b446' : '#6b7280' }}>
                               {k.status === 'aktif' ? 'Aktif' : 'Selesai'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            <button onClick={() => setViewing(k)} className="px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
-                              style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
-                              Detail
-                            </button>
+                          <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-2">
+                              {k.status === 'aktif' && (
+                                <button onClick={() => setReturning(k)}
+                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-blue-50"
+                                  style={{ borderColor: '#3b82f6', color: '#3b82f6' }}>
+                                  <Undo2 className="w-4 h-4" />
+                                  Pengembalian
+                                </button>
+                              )}
+                              <button onClick={() => setViewing(k)}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
+                                style={{ borderColor: '#27b446', color: '#27b446' }}>
+                                <Eye className="w-4 h-4" />
+                                Detail
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -836,6 +985,251 @@ export default function Konsinyasi() {
           onDelete={(id) => void hapus(id)}
         />
       )}
+
+      {/* Return (pengembalian sisa) modal */}
+      {returning && (
+        <ReturnKonsinyasiModal
+          data={returning}
+          busy={busy}
+          onClose={() => setReturning(null)}
+          onReturn={(id, items) => void prosesRetur(id, items)}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Return Konsinyasi Modal — pengembalian sisa barang titipan ke supplier
+// (mengikuti desain V3.1 ReturnKonsinyasiModal).
+// ---------------------------------------------------------------------------
+
+interface ReturnKonsinyasiModalProps {
+  data: KonsinyasiDTO;
+  busy: boolean;
+  onClose: () => void;
+  onReturn: (id: number, items: Array<{ id: number; qtyReturn: number }>) => void;
+}
+
+function ReturnKonsinyasiModal({ data, busy, onClose, onReturn }: ReturnKonsinyasiModalProps) {
+  const [returnItems, setReturnItems] = useState<Record<number, number>>({});
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [error, setError] = useState("");
+
+  const itemsWithReturn = data.items.map((item) => {
+    const qtyReturn = returnItems[item.id] ?? 0;
+    const qtyTersisa = Math.max(0, item.qtyKonsinyasi - item.qtyTerjual - item.qtyDikembalikan);
+    return { ...item, qtyTersisa, qtyReturn, nilaiReturn: item.hargaBeli * qtyReturn };
+  }).filter((item) => item.qtyTersisa > 0);
+
+  const totalNilaiReturn = itemsWithReturn.reduce((sum, item) => sum + item.nilaiReturn, 0);
+  const totalQtyReturn = itemsWithReturn.reduce((sum, item) => sum + item.qtyReturn, 0);
+
+  const handleUpdateReturn = (id: number, qty: number, maxQty: number) => {
+    const validQty = Math.min(Math.max(0, Math.floor(qty) || 0), maxQty);
+    setReturnItems((prev) => ({ ...prev, [id]: validQty }));
+  };
+
+  const handleSubmit = () => {
+    setError("");
+    if (totalQtyReturn === 0) {
+      setError("Minimal harus ada 1 item yang dikembalikan");
+      return;
+    }
+    setShowConfirmation(true);
+  };
+
+  const handleConfirm = () => {
+    const selected = itemsWithReturn
+      .filter((item) => item.qtyReturn > 0)
+      .map((item) => ({ id: item.id, qtyReturn: item.qtyReturn }));
+    onReturn(data.id, selected);
+  };
+
+  if (showConfirmation) {
+    return (
+      <Modal onClose={() => setShowConfirmation(false)} className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden shadow-2xl">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)' }}>
+              <AlertCircle className="w-6 h-6" style={{ color: '#3b82f6' }} />
+            </div>
+            <h2 style={{ color: '#000000' }}>Konfirmasi Pengembalian</h2>
+          </div>
+        </div>
+        <div className="px-6 py-4">
+          <p className="mb-4" style={{ color: '#1a0408' }}>
+            Anda akan mengembalikan {totalQtyReturn} item dengan total nilai:
+          </p>
+          <div className="p-4 rounded-lg" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)' }}>
+            <p className="text-center text-2xl" style={{ color: '#3b82f6' }}>
+              {formatRp(totalNilaiReturn)}
+            </p>
+          </div>
+          <p className="mt-4 text-sm" style={{ color: '#1a0408', opacity: 0.7 }}>
+            Nilai ini akan dikurangi dari pembayaran ke vendor.
+          </p>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+          <button
+            onClick={() => setShowConfirmation(false)}
+            className="flex-1 py-3 rounded-lg border transition-colors"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}
+          >
+            Batal
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={busy}
+            className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: '#3b82f6' }}
+          >
+            {busy ? "Memproses..." : "Ya, Kembalikan"}
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h2 style={{ color: '#000000' }}>Pengembalian Konsinyasi</h2>
+          <p style={{ color: '#3b82f6' }}>{data.noKonsinyasi}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          style={{ color: '#1a0408' }}
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="overflow-y-auto max-h-[calc(90vh-200px)] px-6 py-4">
+        <div className="mb-4 p-4 rounded-lg border-2" style={{ borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.05)' }}>
+          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.8 }}>
+            Masukkan jumlah quantity yang akan dikembalikan untuk setiap produk. Sistem akan menghitung nilai pengembalian secara otomatis.
+          </p>
+        </div>
+
+        {itemsWithReturn.length === 0 ? (
+          <div className="py-12 text-center">
+            <p style={{ color: '#1a0408', opacity: 0.6 }}>
+              Tidak ada produk yang dapat dikembalikan
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
+              <table className="w-full">
+                <thead style={{ backgroundColor: '#f9fafb' }}>
+                  <tr>
+                    <th className="px-4 py-3 text-left" style={{ color: '#000000' }}>Produk</th>
+                    <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Satuan</th>
+                    <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Tersisa</th>
+                    <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Qty Dikembalikan</th>
+                    <th className="px-4 py-3 text-right" style={{ color: '#000000' }}>Harga Beli</th>
+                    <th className="px-4 py-3 text-right" style={{ color: '#000000' }}>Nilai Return</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemsWithReturn.map((item) => (
+                    <tr key={item.id} className="border-t border-gray-200">
+                      <td className="px-4 py-3">
+                        <p style={{ color: '#1a0408' }}>{item.namaProduk}</p>
+                        <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
+                          {item.sku}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: '#f0fdf4', color: '#27b446', border: '1px solid #d1fae5' }}>
+                          {item.satuanNama || '-'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center" style={{ color: '#1a0408' }}>
+                        {item.qtyTersisa}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => handleUpdateReturn(item.id, item.qtyReturn - 1, item.qtyTersisa)}
+                            className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-gray-50"
+                            style={{ borderColor: '#e5e7eb', color: '#1a0408' }}
+                          >
+                            <Minus className="w-4 h-4" />
+                          </button>
+                          <input
+                            type="number"
+                            value={item.qtyReturn || ''}
+                            onChange={(e) => handleUpdateReturn(item.id, parseInt(e.target.value) || 0, item.qtyTersisa)}
+                            onWheel={(e) => e.currentTarget.blur()}
+                            placeholder="0"
+                            min={0}
+                            max={item.qtyTersisa}
+                            className="w-16 text-center px-2 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                            style={{ color: '#1a0408', '--tw-ring-color': '#3b82f6' } as React.CSSProperties}
+                          />
+                          <button
+                            onClick={() => handleUpdateReturn(item.id, item.qtyReturn + 1, item.qtyTersisa)}
+                            className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-gray-50"
+                            style={{ borderColor: '#3b82f6', color: '#3b82f6' }}
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right" style={{ color: '#1a0408' }}>
+                        {formatRp(item.hargaBeli)}
+                      </td>
+                      <td className="px-4 py-3 text-right" style={{ color: '#3b82f6' }}>
+                        {formatRp(item.nilaiReturn)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="p-4 rounded-lg border-2" style={{ borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.05)' }}>
+              <div className="flex justify-between items-center">
+                <span style={{ color: '#000000' }}>Total Nilai Pengembalian</span>
+                <span className="text-xl" style={{ color: '#3b82f6' }}>
+                  {formatRp(totalNilaiReturn)}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {error && (
+          <div className="mt-4 p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+            <p className="text-sm">⚠ {error}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+        <button
+          onClick={onClose}
+          className="flex-1 py-3 rounded-lg border transition-colors"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}
+        >
+          Batal
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={totalQtyReturn === 0}
+          className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ backgroundColor: '#3b82f6' }}
+        >
+          Proses Pengembalian
+        </button>
+      </div>
+    </Modal>
   );
 }

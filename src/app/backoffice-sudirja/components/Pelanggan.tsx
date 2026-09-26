@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
 import { ApiClientError } from "@/lib/api-client";
 import {
   bulkCreatePelanggan, createPelanggan, deletePelanggan, downloadPelangganCsv,
@@ -11,10 +12,9 @@ import type { CreatePelangganInput, PelangganDTO } from "@/lib/pelanggan-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
   X, ChevronLeft, ChevronRight, ChevronDown, Users, Plus, Download, Upload,
-  Edit, Trash2, CheckCircle, Phone, Mail, MapPin, ShoppingBag
+  Edit, Trash2, CheckCircle, Phone, Mail, MapPin, ShoppingBag,
+  Calendar, CheckSquare, Square, AlertTriangle, UserCheck, UserX
 } from "lucide-react";
-import { format } from "date-fns";
-import { id as localeId } from "date-fns/locale";
 import { fmtWib } from "@/lib/date-utils";
 
 type SortField = "id" | "kode" | "nama" | "kecamatan" | "created_at";
@@ -23,6 +23,9 @@ type SortDirection = "asc" | "desc" | null;
 const emptyForm: CreatePelangganInput = {
   nama: "", email: "", telepon: "", alamat: "", kecamatan: "", isMember: false, isActive: true,
 };
+
+/** Gaya input dengan focus ring hijau (dipakai bersama). */
+const focusRingStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as React.CSSProperties;
 
 function formatRp(n: number) {
   return `Rp ${n.toLocaleString('id-ID')}`;
@@ -45,10 +48,9 @@ interface PelangganFormProps {
 function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }: PelangganFormProps) {
   const set = (key: keyof CreatePelangganInput, next: unknown) => onChange({ ...value, [key]: next } as CreatePelangganInput);
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl overflow-hidden">
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
-        className="bg-white rounded-2xl w-full max-w-2xl mx-4 max-h-[92vh] overflow-hidden shadow-2xl flex flex-col">
+        className="flex flex-col max-h-[92vh]">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 style={{ color: '#000000' }}>{title}</h2>
@@ -59,42 +61,42 @@ function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, bu
           </button>
         </div>
 
-        <div className="overflow-y-auto px-6 py-4 flex-1">
+        <div className="overflow-y-auto px-6 py-4 flex-1 min-h-0">
           <div className="grid grid-cols-2 gap-4">
             <label className="col-span-2">
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Nama Pelanggan *</span>
               <input required value={value.nama} onChange={(e) => set("nama", e.target.value)}
                 placeholder="cth: Ahmad Hidayat"
                 className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
+                style={focusRingStyle} />
             </label>
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Email</span>
               <input type="email" value={value.email ?? ""} onChange={(e) => set("email", e.target.value)}
                 placeholder="cth: nama@email.com"
                 className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
+                style={focusRingStyle} />
             </label>
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Telepon</span>
               <input value={value.telepon ?? ""} onChange={(e) => set("telepon", e.target.value)}
                 placeholder="cth: 081234567890"
                 className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
+                style={focusRingStyle} />
             </label>
             <label className="col-span-2">
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Alamat</span>
               <textarea value={value.alamat ?? ""} onChange={(e) => set("alamat", e.target.value)} rows={2}
                 placeholder="cth: Jl. Merdeka No. 123, RT 01/RW 05"
                 className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
+                style={focusRingStyle} />
             </label>
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kecamatan</span>
               <input value={value.kecamatan ?? ""} onChange={(e) => set("kecamatan", e.target.value)}
                 placeholder="cth: Ciputat"
                 className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
+                style={focusRingStyle} />
             </label>
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Keanggotaan</span>
@@ -137,7 +139,7 @@ function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, bu
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -145,90 +147,205 @@ function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, bu
 // Detail Modal
 // ---------------------------------------------------------------------------
 
-function DetailModal({ pelanggan, onClose, onEdit }: { pelanggan: PelangganDTO; onClose: () => void; onEdit: (p: PelangganDTO) => void }) {
+interface DetailModalProps {
+  pelanggan: PelangganDTO;
+  onClose: () => void;
+  onEdit: (p: PelangganDTO) => void;
+  onToggleMember: (p: PelangganDTO) => void;
+  busy: boolean;
+}
+
+function DetailModal({ pelanggan, onClose, onEdit, onToggleMember, busy }: DetailModalProps) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h2 style={{ color: '#000000' }}>Detail Pelanggan</h2>
-            <p style={{ color: '#27b446', fontFamily: 'monospace' }}>{pelanggan.kode}</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
-            <X className="w-5 h-5" />
-          </button>
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h2 style={{ color: '#000000' }}>Detail Pelanggan</h2>
+          <p style={{ color: '#27b446', fontFamily: 'monospace' }}>{pelanggan.kode}</p>
         </div>
-        <div className="overflow-y-auto px-6 py-4 flex-1">
-          <div className="flex items-start justify-between mb-5">
-            <div>
-              <h3 className="text-lg font-medium mb-1" style={{ color: '#000000' }}>{pelanggan.nama}</h3>
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="overflow-y-auto flex-1 min-h-0 px-6 py-4">
+        {/* Informasi Pelanggan */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 style={{ color: '#000000' }}>Informasi Pelanggan</h3>
+            <div className="flex items-center gap-2">
+              <button onClick={() => onEdit(pelanggan)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors hover:bg-gray-50"
+                style={{ borderColor: '#27b446', color: '#27b446' }}>
+                <Edit className="w-4 h-4" />
+                Edit
+              </button>
               {pelanggan.isMember ? (
-                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
-                  style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)', color: '#27b446' }}>
-                  <CheckCircle className="w-4 h-4" /> Member
-                </span>
+                <button onClick={() => onToggleMember(pelanggan)} disabled={busy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors hover:bg-gray-50 disabled:opacity-50"
+                  style={{ borderColor: '#e40b18', color: '#e40b18' }}>
+                  <X className="w-4 h-4" />
+                  Lepas Membership
+                </button>
               ) : (
-                <span className="inline-flex px-3 py-1 rounded-full text-sm"
-                  style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}>Reguler</span>
+                <button onClick={() => onToggleMember(pelanggan)} disabled={busy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#27b446' }}>
+                  <CheckCircle className="w-4 h-4" />
+                  Set Sebagai Member
+                </button>
               )}
             </div>
-            <button onClick={() => onEdit(pelanggan)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm transition-opacity hover:opacity-90"
-              style={{ backgroundColor: '#27b446' }}>
-              <Edit className="w-4 h-4" /> Edit
-            </button>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 mb-5">
-            <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
-              <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Total Transaksi Commerce</p>
-              <p className="text-xl flex items-center gap-2" style={{ color: '#27b446' }}>
-                <ShoppingBag className="w-5 h-5" /> {pelanggan.totalTransaksi ?? 0}
-              </p>
-            </div>
-            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-              <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Total Belanja</p>
-              <p className="text-xl" style={{ color: '#1a0408' }}>{formatRp(pelanggan.totalBelanja ?? 0)}</p>
-            </div>
-          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Users className="w-4 h-4" style={{ color: '#27b446' }} />
+                  <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Nama Lengkap</p>
+                </div>
+                <p style={{ color: '#000000' }}>{pelanggan.nama}</p>
+              </div>
 
-          {/* Contact */}
-          <div className="space-y-3 p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-            {pelanggan.telepon && (
-              <p className="flex items-center gap-2 text-sm" style={{ color: '#1a0408' }}>
-                <Phone className="w-4 h-4" style={{ color: '#27b446' }} /> {pelanggan.telepon}
-              </p>
-            )}
-            {pelanggan.email && (
-              <p className="flex items-center gap-2 text-sm" style={{ color: '#1a0408' }}>
-                <Mail className="w-4 h-4" style={{ color: '#27b446' }} /> {pelanggan.email}
-              </p>
-            )}
-            {pelanggan.alamat && (
-              <p className="flex items-start gap-2 text-sm" style={{ color: '#1a0408' }}>
-                <MapPin className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#27b446' }} /> {pelanggan.alamat}
-              </p>
-            )}
-            {pelanggan.kecamatan && (
-              <p className="flex items-center gap-2 text-sm" style={{ color: '#1a0408' }}>
-                <MapPin className="w-4 h-4" style={{ color: '#27b446' }} /> Kec. {pelanggan.kecamatan}
-              </p>
-            )}
-            <p className="text-xs" style={{ color: '#1a0408', opacity: 0.5 }}>
-              Terdaftar {fmtWib(pelanggan.createdAt, "dd MMM yyyy")}
-            </p>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Mail className="w-4 h-4" style={{ color: '#27b446' }} />
+                  <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Email</p>
+                </div>
+                <p style={{ color: '#000000' }}>{pelanggan.email || "—"}</p>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Phone className="w-4 h-4" style={{ color: '#27b446' }} />
+                  <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Nomor Telepon</p>
+                </div>
+                <p style={{ color: '#000000' }}>{pelanggan.telepon || "—"}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <MapPin className="w-4 h-4" style={{ color: '#27b446' }} />
+                  <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Alamat Lengkap</p>
+                </div>
+                <p style={{ color: '#000000' }}>{pelanggan.alamat || "—"}</p>
+                <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+                  Kec. {pelanggan.kecamatan || "-"}
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Calendar className="w-4 h-4" style={{ color: '#27b446' }} />
+                  <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Tanggal Daftar</p>
+                </div>
+                <p style={{ color: '#000000' }}>{fmtWib(pelanggan.createdAt, "dd MMMM yyyy")}</p>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCircle className="w-4 h-4" style={{ color: '#27b446' }} />
+                  <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Status</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {pelanggan.isMember ? (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
+                      style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)', color: '#27b446' }}>
+                      <CheckCircle className="w-4 h-4" /> Member
+                    </span>
+                  ) : (
+                    <span className="inline-flex px-3 py-1 rounded-full text-sm"
+                      style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}>Reguler</span>
+                  )}
+                  {pelanggan.isActive ? (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
+                      style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)', color: '#27b446' }}>
+                      <CheckCircle className="w-4 h-4" /> Aktif
+                    </span>
+                  ) : (
+                    <span className="inline-flex px-3 py-1 rounded-full text-sm"
+                      style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>Nonaktif</span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="px-6 py-4 border-t border-gray-200">
-          <button onClick={onClose} className="w-full py-3 rounded-lg border transition-colors"
-            style={{ borderColor: '#e40b18', color: '#e40b18' }}>
-            Tutup
-          </button>
+
+        {/* Statistik Pembelian */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <ShoppingBag className="w-5 h-5" style={{ color: '#27b446' }} />
+            <h3 style={{ color: '#000000' }}>Statistik Pembelian</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+              <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Total Transaksi</p>
+              <p className="text-2xl" style={{ color: '#27b446' }}>{pelanggan.totalTransaksi ?? 0}</p>
+            </div>
+            <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+              <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Total Belanja</p>
+              <p className="text-2xl" style={{ color: '#27b446' }}>{formatRp(pelanggan.totalBelanja ?? 0)}</p>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200">
+        <button onClick={onClose} className="w-full py-3 rounded-lg border transition-colors"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}>
+          Tutup
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Delete Confirm Modal
+// ---------------------------------------------------------------------------
+
+interface BulkDeleteConfirmModalProps {
+  count: number;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+function BulkDeleteConfirmModal({ count, busy, onClose, onConfirm }: BulkDeleteConfirmModalProps) {
+  return (
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(228,11,24,0.1)' }}>
+          <AlertTriangle className="w-5 h-5" style={{ color: '#e40b18' }} />
+        </div>
+        <h2 style={{ color: '#000000' }}>Konfirmasi Hapus Pelanggan</h2>
+      </div>
+      <div className="px-6 py-4">
+        <p style={{ color: '#1a0408' }}>
+          Hapus <span className="font-semibold" style={{ color: '#000000' }}>{count} pelanggan</span> yang dipilih beserta seluruh riwayat pembeliannya?
+        </p>
+        <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.6 }}>Tindakan ini tidak dapat dibatalkan.</p>
+      </div>
+      <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+        <button onClick={onClose}
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
+          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+          Batal
+        </button>
+        <button onClick={onConfirm} disabled={busy}
+          className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: '#e40b18' }}>
+          {busy ? "Menghapus..." : `Ya, Hapus ${count} Pelanggan`}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -253,6 +370,7 @@ export default function Pelanggan() {
   const [editing, setEditing] = useState<PelangganDTO | null>(null);
   const [viewing, setViewing] = useState<PelangganDTO | null>(null);
   const [deleting, setDeleting] = useState<PelangganDTO | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [form, setForm] = useState<CreatePelangganInput>(emptyForm);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -337,13 +455,26 @@ export default function Pelanggan() {
     } finally { setBusy(false); }
   };
 
+  const toggleMember = async (p: PelangganDTO) => {
+    setBusy(true);
+    try {
+      const updated = await updatePelanggan(p.id, { isMember: !p.isMember });
+      await load();
+      if (updated) setViewing(updated);
+    } catch (e) {
+      setError(e instanceof ApiClientError ? e.message : "Gagal mengubah status member.");
+    } finally { setBusy(false); }
+  };
+
   const bulkSetMember = async (member: boolean) => {
     if (selected.size === 0) return;
     setBusy(true);
     try {
-      await Promise.all([...selected].map((id) => updatePelanggan(id, { isMember: member })));
+      const results = await Promise.allSettled([...selected].map((id) => updatePelanggan(id, { isMember: member })));
+      const failed = results.filter((r) => r.status === "rejected").length;
       setSelected(new Set());
       await load();
+      if (failed > 0) setError(`Gagal mengubah status member untuk ${failed} pelanggan.`);
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : "Gagal mengubah status member.");
     } finally { setBusy(false); }
@@ -356,6 +487,21 @@ export default function Pelanggan() {
       await deletePelanggan(deleting.id);
       setDeleting(null);
       await load();
+    } catch (e) {
+      setError(e instanceof ApiClientError ? e.message : "Gagal menghapus pelanggan.");
+    } finally { setBusy(false); }
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selected.size === 0) return;
+    setBusy(true);
+    try {
+      const results = await Promise.allSettled([...selected].map((id) => deletePelanggan(id)));
+      const failed = results.filter((r) => r.status === "rejected").length;
+      setShowBulkDeleteConfirm(false);
+      setSelected(new Set());
+      await load();
+      if (failed > 0) setError(`Gagal menghapus ${failed} pelanggan.`);
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : "Gagal menghapus pelanggan.");
     } finally { setBusy(false); }
@@ -406,6 +552,12 @@ export default function Pelanggan() {
   const rangeStart = total === 0 ? 0 : (page - 1) * itemsPerPage + 1;
   const rangeEnd = Math.min(page * itemsPerPage, total);
 
+  const allSelected = items.length > 0 && items.every((p) => selected.has(p.id));
+  const selectedList = items.filter((p) => selected.has(p.id));
+  const selectedAllMember = selectedList.length > 0 && selectedList.every((p) => p.isMember);
+  const selectedAllReguler = selectedList.length > 0 && selectedList.every((p) => !p.isMember);
+  const selectedMixed = selectedList.length > 0 && !selectedAllMember && !selectedAllReguler;
+
   return (
     <div className="flex h-screen" style={{ backgroundColor: '#fcfaff' }}>
       <AdminSidebar activePage="pelanggan" />
@@ -421,65 +573,50 @@ export default function Pelanggan() {
               </p>
             </div>
 
-            {selected.size > 0 ? (
-              <div className="flex items-center gap-3">
-                <span style={{ color: '#1a0408' }}>{selected.size} pelanggan dipilih</span>
-                <button onClick={() => void bulkSetMember(true)} disabled={busy}
-                  className="px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            <div className="flex items-center gap-3">
+              <button onClick={() => void exportData()}
+                className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all hover:opacity-90"
+                style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
+                title="Export seluruh data pelanggan (CSV)">
+                <Download className="w-5 h-5" />
+                Export Data
+              </button>
+              <div className="relative">
+                <button onClick={() => setShowAddMenu(!showAddMenu)}
+                  className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
                   style={{ backgroundColor: '#27b446' }}>
-                  Jadikan Member
+                  <Plus className="w-5 h-5" />
+                  Tambah Pelanggan
+                  <ChevronDown className="w-4 h-4" />
                 </button>
-                <button onClick={() => setSelected(new Set())}
-                  className="px-4 py-2 rounded-lg border transition-colors" style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
-                  Batal
-                </button>
+                {showAddMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
+                      <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                        style={{ color: '#1a0408' }}>
+                        <Edit className="w-5 h-5" style={{ color: '#27b446' }} />
+                        <div>
+                          <p style={{ color: '#000000' }}>Manual</p>
+                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p>
+                        </div>
+                      </button>
+                      <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
+                        style={{ color: '#1a0408' }}>
+                        <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
+                        <div>
+                          <p style={{ color: '#000000' }}>Bulk Upload</p>
+                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <button onClick={() => void exportData()}
-                  className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all hover:opacity-90"
-                  style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
-                  title="Export seluruh data pelanggan (CSV)">
-                  <Download className="w-5 h-5" />
-                  Export Data
-                </button>
-                <div className="relative">
-                  <button onClick={() => setShowAddMenu(!showAddMenu)}
-                    className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
-                    style={{ backgroundColor: '#27b446' }}>
-                    <Plus className="w-5 h-5" />
-                    Tambah Pelanggan
-                    <ChevronDown className="w-4 h-4" />
-                  </button>
-                  {showAddMenu && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
-                      <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
-                        <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
-                          className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
-                          style={{ color: '#1a0408' }}>
-                          <Edit className="w-5 h-5" style={{ color: '#27b446' }} />
-                          <div>
-                            <p style={{ color: '#000000' }}>Manual</p>
-                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p>
-                          </div>
-                        </button>
-                        <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
-                          className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
-                          style={{ color: '#1a0408' }}>
-                          <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
-                          <div>
-                            <p style={{ color: '#000000' }}>Bulk Upload</p>
-                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
-                          </div>
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
-              </div>
-            )}
+              <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
+            </div>
           </div>
         </div>
 
@@ -491,7 +628,7 @@ export default function Pelanggan() {
               <input type="text" placeholder="Cari kode, nama, telepon, atau email..." value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 className="w-full pl-10 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
+                style={focusRingStyle} />
               {search && (
                 <button onClick={() => { setSearch(""); setPage(1); }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-gray-100 transition-colors"
@@ -511,6 +648,44 @@ export default function Pelanggan() {
             </div>
           )}
 
+          {/* Bulk action bar */}
+          {selected.size > 0 && (
+            <div className="flex items-center gap-3 mb-4 px-4 py-3 rounded-lg border-2" style={{ borderColor: '#e40b18', backgroundColor: 'rgba(228,11,24,0.04)' }}>
+              <span className="text-sm" style={{ color: '#1a0408' }}>
+                {selected.size} pelanggan dipilih
+              </span>
+              <div className="flex items-center gap-2 ml-auto flex-wrap">
+                {(selectedAllReguler || selectedMixed) && (
+                  <button onClick={() => void bulkSetMember(true)} disabled={busy}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ backgroundColor: '#27b446' }}>
+                    <UserCheck className="w-4 h-4" />
+                    Set sebagai Member
+                  </button>
+                )}
+                {(selectedAllMember || selectedMixed) && (
+                  <button onClick={() => void bulkSetMember(false)} disabled={busy}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ backgroundColor: '#6b7280' }}>
+                    <UserX className="w-4 h-4" />
+                    Set sebagai Reguler
+                  </button>
+                )}
+                <button onClick={() => setShowBulkDeleteConfirm(true)} disabled={busy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#e40b18' }}>
+                  <Trash2 className="w-4 h-4" />
+                  Hapus ({selected.size})
+                </button>
+                <button onClick={() => setSelected(new Set())}
+                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-gray-50"
+                  style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+                  Batal
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             {loading ? (
               <div className="py-16 text-center"><p style={{ color: '#1a0408', opacity: 0.6 }}>Memuat data pelanggan...</p></div>
@@ -521,13 +696,14 @@ export default function Pelanggan() {
                     <thead>
                       <tr style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
                         <th className="px-6 py-4 text-center" style={{ width: '50px' }}>
-                          <button onClick={handleSelectAll} className="flex items-center justify-center" style={{ color: '#27b446' }}>
-                            {items.length > 0 && items.every((p) => selected.has(p.id)) ? <CheckCircle className="w-5 h-5" /> : <span className="w-5 h-5 border-2 rounded" style={{ borderColor: '#27b446' }} />}
+                          <button onClick={handleSelectAll} className="flex items-center justify-center" style={{ color: '#27b446' }}
+                            title={allSelected ? "Batalkan semua" : "Pilih semua"}>
+                            {allSelected ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
                           </button>
                         </th>
                         <th className="px-6 py-4 text-left">
                           <button onClick={() => handleSort("kode")} className="flex items-center gap-2 hover:opacity-70 transition-opacity" style={{ color: '#000000' }}>
-                            Kode {getSortIcon("kode")}
+                            ID Pelanggan {getSortIcon("kode")}
                           </button>
                         </th>
                         <th className="px-6 py-4 text-left">
@@ -539,6 +715,11 @@ export default function Pelanggan() {
                         <th className="px-6 py-4 text-left">
                           <button onClick={() => handleSort("kecamatan")} className="flex items-center gap-2 hover:opacity-70 transition-opacity" style={{ color: '#000000' }}>
                             Kecamatan {getSortIcon("kecamatan")}
+                          </button>
+                        </th>
+                        <th className="px-6 py-4 text-left">
+                          <button onClick={() => handleSort("created_at")} className="flex items-center gap-2 hover:opacity-70 transition-opacity" style={{ color: '#000000' }}>
+                            Tanggal Daftar {getSortIcon("created_at")}
                           </button>
                         </th>
                         <th className="px-6 py-4 text-right" style={{ color: '#000000' }}>Transaksi</th>
@@ -553,7 +734,7 @@ export default function Pelanggan() {
                           style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
                           <td className="px-6 py-4 text-center">
                             <button onClick={() => handleSelect(p.id, !selected.has(p.id))} className="flex items-center justify-center" style={{ color: '#27b446' }}>
-                              {selected.has(p.id) ? <CheckCircle className="w-5 h-5" /> : <span className="w-5 h-5 border-2 rounded" style={{ borderColor: '#27b446' }} />}
+                              {selected.has(p.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
                             </button>
                           </td>
                           <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(p)} style={{ color: '#27b446', fontFamily: 'monospace' }}>{p.kode}</td>
@@ -572,6 +753,7 @@ export default function Pelanggan() {
                             {!p.telepon && !p.email && <span style={{ opacity: 0.4 }}>—</span>}
                           </td>
                           <td className="px-6 py-4" style={{ color: '#1a0408' }}>{p.kecamatan || <span style={{ opacity: 0.4 }}>—</span>}</td>
+                          <td className="px-6 py-4 text-sm" style={{ color: '#1a0408' }}>{fmtWib(p.createdAt, "dd MMM yyyy")}</td>
                           <td className="px-6 py-4 text-right" style={{ color: '#1a0408' }}>{p.totalTransaksi ?? 0}</td>
                           <td className="px-6 py-4 text-right font-medium" style={{ color: '#27b446' }}>{formatRp(p.totalBelanja ?? 0)}</td>
                           <td className="px-6 py-4 text-center">
@@ -611,7 +793,7 @@ export default function Pelanggan() {
                     <div className="relative">
                       <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setPage(1); }}
                         className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 cursor-pointer"
-                        style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}>
+                        style={focusRingStyle}>
                         <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option>
                       </select>
                       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
@@ -687,29 +869,44 @@ export default function Pelanggan() {
           pelanggan={viewing}
           onClose={() => setViewing(null)}
           onEdit={(p) => { setEditing(p); setForm({ nama: p.nama, email: p.email ?? "", telepon: p.telepon ?? "", alamat: p.alamat ?? "", kecamatan: p.kecamatan ?? "", isMember: p.isMember, isActive: p.isActive }); }}
+          onToggleMember={(p) => void toggleMember(p)}
+          busy={busy}
         />
       )}
 
       {/* Delete confirm */}
       {deleting && (
-        <div className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-          <div className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200"><h2 style={{ color: '#000000' }}>Hapus Pelanggan</h2></div>
-            <div className="px-6 py-4">
-              <p style={{ color: '#1a0408' }}>
-                Yakin ingin menghapus <strong>{deleting.nama}</strong> ({deleting.kode})?
-              </p>
+        <Modal onClose={() => setDeleting(null)} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(228,11,24,0.1)' }}>
+              <AlertTriangle className="w-5 h-5" style={{ color: '#e40b18' }} />
             </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
-              <button onClick={() => setDeleting(null)} className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-                style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Batal</button>
-              <button onClick={() => void confirmDelete()} disabled={busy}
-                className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: '#e40b18' }}>{busy ? "Menghapus..." : "Hapus"}</button>
-            </div>
+            <h2 style={{ color: '#000000' }}>Konfirmasi Hapus Pelanggan</h2>
           </div>
-        </div>
+          <div className="px-6 py-4">
+            <p style={{ color: '#1a0408' }}>
+              Yakin ingin menghapus <span className="font-semibold" style={{ color: '#000000' }}>{deleting.nama}</span> ({deleting.kode})?
+            </p>
+            <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.6 }}>Tindakan ini tidak dapat dibatalkan.</p>
+          </div>
+          <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+            <button onClick={() => setDeleting(null)} className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
+              style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Batal</button>
+            <button onClick={() => void confirmDelete()} disabled={busy}
+              className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: '#e40b18' }}>{busy ? "Menghapus..." : "Hapus"}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Bulk Delete Confirm */}
+      {showBulkDeleteConfirm && (
+        <BulkDeleteConfirmModal
+          count={selected.size}
+          busy={busy}
+          onClose={() => setShowBulkDeleteConfirm(false)}
+          onConfirm={() => void confirmBulkDelete()}
+        />
       )}
     </div>
   );

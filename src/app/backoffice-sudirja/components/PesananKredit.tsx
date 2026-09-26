@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Search, Calendar, ArrowUpDown, ArrowUp, ArrowDown,
   X, ChevronLeft, ChevronRight, CreditCard, CheckCircle,
@@ -9,6 +9,8 @@ import { format } from "date-fns";
 import { id } from "date-fns/locale";
 import { fmtWib } from "@/lib/date-utils";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
+import DatePicker from "./DatePicker";
 import { useUser } from "./useUser";
 import { ApiClientError } from "@/lib/api-client";
 import {
@@ -37,6 +39,26 @@ function getStatusBadge(status: string) {
 
 type SortField = "no_pesanan" | "created_at" | "kasir_nama" | "total" | "totalDibayar";
 type SortDir = "asc" | "desc" | null;
+
+// Tutup panel/popover saat klik di luar (di luar panel & pemicunya).
+// Kalender DatePicker di-portal ke <body> dan menghentikan propagasi
+// mousedown-nya sendiri, jadi interaksi dengannya tidak ikut menutup panel.
+function useOutsideClickClose(
+  ref: { current: HTMLElement | null },
+  onOutside: () => void,
+  extraRef?: { current: HTMLElement | null },
+) {
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (t && typeof t.closest === "function" && t.closest('body > [style*="z-index: 99999"]')) return;
+      if (t && (ref.current?.contains(t) || extraRef?.current?.contains(t))) return;
+      onOutside();
+    };
+    document.addEventListener("mousedown", handleDown);
+    return () => document.removeEventListener("mousedown", handleDown);
+  }, [ref, extraRef, onOutside]);
+}
 
 // Main Page
 
@@ -102,6 +124,11 @@ export default function PesananKredit() {
 
   const hasActiveFilters = searchId || dateFrom || dateTo;
   const clearFilters = () => { setSearchId(""); setDateFrom(""); setDateTo(""); setPagination(prev => ({ ...prev, page: 1 })); };
+
+  // Panel filter tanggal: tertutup saat klik di luar.
+  const dateFilterRef = useRef<HTMLDivElement>(null);
+  const dateFilterToggleRef = useRef<HTMLButtonElement>(null);
+  useOutsideClickClose(dateFilterRef, () => setShowDateFilter(false), dateFilterToggleRef);
 
   const handleSort = (field: SortField) => {
     setPagination(prev => ({ ...prev, page: 1 }));
@@ -259,6 +286,7 @@ export default function PesananKredit() {
               />
             </div>
             <button
+              ref={dateFilterToggleRef}
               onClick={() => setShowDateFilter(v => !v)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors"
               style={{
@@ -283,13 +311,12 @@ export default function PesananKredit() {
           </div>
 
           {showDateFilter && (
-            <div className="mt-4 flex gap-4 p-4 rounded-lg border-2"
+            <div ref={dateFilterRef} className="mt-4 flex gap-4 p-4 rounded-lg border-2"
               style={{ borderColor: '#27b446', backgroundColor: 'rgba(39,180,70,0.05)' }}>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Dari Tanggal</label>
-                <input type="date" value={dateFrom} max={dateTo || undefined}
-                  onChange={e => {
-                    const v = e.target.value;
+                <DatePicker value={dateFrom} max={dateTo || undefined}
+                  onChange={v => {
                     setDateFrom(v);
                     if (dateTo && v && v > dateTo) setDateTo("");
                     setCurrentPage(1);
@@ -300,9 +327,8 @@ export default function PesananKredit() {
               </div>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Sampai Tanggal</label>
-                <input type="date" value={dateTo} min={dateFrom || undefined}
-                  onChange={e => {
-                    const v = e.target.value;
+                <DatePicker value={dateTo} min={dateFrom || undefined}
+                  onChange={v => {
                     setDateTo(v);
                     if (dateFrom && v && v < dateFrom) setDateFrom("");
                     setCurrentPage(1);
@@ -539,12 +565,7 @@ function CreditDetailModal({ order, onClose, currentUser, onPaymentRecorded }: C
   let cumulative = 0;
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backdropFilter: "blur(6px)", backgroundColor: "rgba(0,0,0,0.10)" }}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl w-full mx-4 overflow-hidden flex relative"
-        style={{ maxWidth: "900px", maxHeight: "90vh" }}>
+    <Modal onClose={onClose} className="bg-white rounded-2xl shadow-2xl w-full mx-4 overflow-hidden flex relative max-w-[900px] max-h-[90vh]">
 
         {/* Close button — fixed to top-right of popup */}
         <button
@@ -796,7 +817,6 @@ function CreditDetailModal({ order, onClose, currentUser, onPaymentRecorded }: C
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

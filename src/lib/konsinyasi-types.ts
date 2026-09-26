@@ -70,6 +70,13 @@ export interface CreateKonsinyasiInput {
   items: CreateKonsinyasiItemInput[];
 }
 
+export interface ReturKonsinyasiItemInput {
+  /** id konsinyasi_item */
+  id: number;
+  /** qty yang dikembalikan ke supplier (1..sisa) */
+  qtyReturn: number;
+}
+
 export interface KonsinyasiListResponse {
   items: KonsinyasiDTO[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };

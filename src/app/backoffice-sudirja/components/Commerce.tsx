@@ -1,13 +1,15 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
+import DatePicker from "./DatePicker";
 import { ApiClientError } from "@/lib/api-client";
 import { listKurir, listPesanan, updatePengiriman } from "@/lib/pesanan-api";
 import type { KurirDTO, PesananDTO } from "@/lib/pesanan-types";
 import {
   Search, Calendar, ArrowUpDown, ArrowUp, ArrowDown,
   X, ChevronLeft, ChevronRight, ChevronDown, Truck, CheckCircle,
-  CheckSquare, Square, Download, MapPin, Phone
+  CheckSquare, Square, Download, MapPin, Phone, Eye
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
@@ -52,9 +54,7 @@ function PilihKurirModal({ onClose, onAssign, kurirs, busy }: {
 }) {
   const [selected, setSelected] = useState("");
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 style={{ color: '#000000' }}>Pilih Kurir</h2>
@@ -112,8 +112,7 @@ function PilihKurirModal({ onClose, onAssign, kurirs, busy }: {
             {busy ? "Memproses..." : "Kirim"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -131,9 +130,7 @@ function OrderDetailModal({ order, onClose, onPilihKurir, onSelesaikan, busy }: 
   const discountAmount = order.diskonAmount;
   const kurir = order.kurir;
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 style={{ color: '#000000' }}>Detail Pesanan Commerce</h2>
@@ -275,8 +272,7 @@ function OrderDetailModal({ order, onClose, onPilihKurir, onSelesaikan, busy }: 
             Tutup
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -507,15 +503,15 @@ export default function Commerce() {
             <div className="mt-4 flex items-center gap-4 p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Dari Tanggal</label>
-                <input type="date" value={dateFrom} max={dateTo || undefined}
-                  onChange={(e) => { const v = e.target.value; setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setPagination((p) => ({ ...p, page: 1 })); }}
+                <DatePicker value={dateFrom} max={dateTo || undefined}
+                  onChange={(v) => { setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Sampai Tanggal</label>
-                <input type="date" value={dateTo} min={dateFrom || undefined}
-                  onChange={(e) => { const v = e.target.value; setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setPagination((p) => ({ ...p, page: 1 })); }}
+                <DatePicker value={dateTo} min={dateFrom || undefined}
+                  onChange={(v) => { setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
@@ -605,25 +601,25 @@ export default function Commerce() {
                               <div className="flex items-center justify-center gap-1.5">
                                 {order.statusPengiriman === "Menunggu Kurir" && (
                                   <button onClick={() => { setOrderForCourier(order); setShowCourierModal(true); }}
-                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 text-sm transition-all hover:opacity-80"
-                                    style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
+                                    className="p-2 rounded-lg border transition-colors hover:bg-gray-50"
+                                    style={{ borderColor: '#27b446', color: '#27b446' }}
                                     title="Pilih kurir">
                                     <Truck className="w-4 h-4" />
-                                    Kurir
                                   </button>
                                 )}
                                 {order.statusPengiriman === "Diantar" && (
                                   <button onClick={() => void handleComplete(order)} disabled={busy}
-                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 text-sm transition-all hover:opacity-80 disabled:opacity-50"
-                                    style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+                                    className="p-2 rounded-lg border transition-colors hover:bg-gray-50 disabled:opacity-50"
+                                    style={{ borderColor: '#27b446', color: '#27b446' }}
+                                    title="Selesaikan pengiriman">
                                     <CheckCircle className="w-4 h-4" />
-                                    Selesai
                                   </button>
                                 )}
                                 <button onClick={() => setSelectedOrder(order)}
-                                  className="px-3 py-1.5 rounded-lg border text-sm transition-colors hover:bg-gray-50"
-                                  style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
-                                  Detail
+                                  className="p-2 rounded-lg border transition-colors hover:bg-gray-50"
+                                  style={{ borderColor: '#27b446', color: '#27b446' }}
+                                  title="Detail">
+                                  <Eye className="w-4 h-4" />
                                 </button>
                               </div>
                             </td>

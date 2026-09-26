@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "./useUser";
 
@@ -78,13 +78,28 @@ export default function AdminSidebar({ activePage = "dashboard" }: { activePage?
   function hasAccess(item: MenuItem): boolean {
     if (currentUser.isSuperadmin) return true;
     const perms = currentUser.permissions ?? [];
-    if (item.children) {
-      return item.children.some((c) => perms.includes(c.id));
-    }
+    // Izin per modul — kode = id menu induk; submenu mengikuti izin induknya.
     return perms.includes(item.id);
   }
 
   const visibleMenu = menu.filter(hasAccess);
+
+  // Petakan id halaman (termasuk submenu) → kode modul izin (id menu induk).
+  const moduleOfPage: Partial<Record<SidebarPage, string>> = {};
+  for (const item of menu) {
+    moduleOfPage[item.id] = item.id;
+    for (const c of item.children ?? []) moduleOfPage[c.id] = item.id;
+  }
+
+  // Guard URL langsung: halaman yang tidak diizinkan role → kembali ke dashboard.
+  const permsKey = (currentUser.permissions ?? []).join(",");
+  useEffect(() => {
+    const mod = moduleOfPage[activePage];
+    if (!mod || activePage === "dashboard") return;
+    const allowed = currentUser.isSuperadmin || (currentUser.permissions ?? []).includes(mod);
+    if (!allowed) router.replace(`${BASE}/dashboard`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage, currentUser.isSuperadmin, permsKey]);
 
   function logout() {
     localStorage.removeItem("sudirja-user");

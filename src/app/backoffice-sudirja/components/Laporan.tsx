@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import DatePicker from "./DatePicker";
 import { ApiClientError } from "@/lib/api-client";
 import { generateLaporan } from "@/lib/laporan-api";
 import type { LaporanDTO, LaporanTipe } from "@/lib/laporan-types";
@@ -155,7 +156,7 @@ export default function Laporan() {
             {reportType === "daily" && (
               <div>
                 <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal</span>
-                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
+                <DatePicker value={selectedDate} onChange={(v) => setSelectedDate(v)}
                   className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
               </div>
             )}
@@ -177,14 +178,14 @@ export default function Laporan() {
               <>
                 <div>
                   <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Dari</span>
-                  <input type="date" value={customDateFrom} max={customDateTo || undefined}
-                    onChange={(e) => { const v = e.target.value; setCustomDateFrom(v); if (customDateTo && v && v > customDateTo) setCustomDateTo(""); }}
+                  <DatePicker value={customDateFrom} max={customDateTo || undefined}
+                    onChange={(v) => { setCustomDateFrom(v); if (customDateTo && v && v > customDateTo) setCustomDateTo(""); }}
                     className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
                 </div>
                 <div>
                   <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Sampai</span>
-                  <input type="date" value={customDateTo} min={customDateFrom || undefined}
-                    onChange={(e) => { const v = e.target.value; setCustomDateTo(v); if (customDateFrom && v && v < customDateFrom) setCustomDateFrom(""); }}
+                  <DatePicker value={customDateTo} min={customDateFrom || undefined}
+                    onChange={(v) => { setCustomDateTo(v); if (customDateFrom && v && v < customDateFrom) setCustomDateFrom(""); }}
                     className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
                 </div>
               </>

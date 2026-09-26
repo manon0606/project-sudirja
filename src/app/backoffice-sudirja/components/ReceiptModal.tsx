@@ -1,5 +1,6 @@
 "use client";
 import { Printer, CheckCircle, X } from "lucide-react";
+import Modal from "./Modal";
 
 interface ReceiptItem {
   name: string;
@@ -67,14 +68,7 @@ export default function ReceiptModal({
       : paymentMethod;
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backdropFilter: "blur(6px)", backgroundColor: "rgba(0,0,0,0.10)" }}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full mx-4 overflow-hidden flex flex-col"
-        style={{ maxWidth: "480px", maxHeight: "90vh" }}
-      >
+    <Modal onClose={onClose} className="bg-white rounded-2xl shadow-2xl w-full mx-4 overflow-hidden flex flex-col max-w-[480px] max-h-[90vh]">
         {/* Header strip */}
         <div className="px-6 pt-6 pb-5 text-center" style={{ backgroundColor: "#27b446" }}>
           <div className="flex items-center justify-center gap-2 mb-1">
@@ -232,7 +226,6 @@ export default function ReceiptModal({
             Selesai
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

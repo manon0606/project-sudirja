@@ -6,6 +6,7 @@ import type {
   BulkKonsinyasiResult,
   CreateKonsinyasiInput,
   CreateKonsinyasiItemInput,
+  ReturKonsinyasiItemInput,
   KonsinyasiDTO,
   KonsinyasiItemDTO,
   KonsinyasiListResponse,
@@ -87,6 +88,13 @@ function toDTO(row: KonsinyasiRow, items: KonsinyasiItemDTO[]): KonsinyasiDTO {
 // List & get
 // ---------------------------------------------------------------------------
 
+/** Batas hari (YYYY-MM-DD) zona WIB (UTC+7) → instan UTC (kolom DATETIME tersimpan UTC). */
+function wibDayBoundary(ymd: string, endOfDay: boolean): Date | string {
+  const d = new Date(`${ymd}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}+07:00`);
+  // Fallback: bila tanggal tidak valid, pakai perilaku lama (string apa adanya).
+  return Number.isNaN(d.getTime()) ? `${ymd} ${endOfDay ? "23:59:59" : "00:00:00"}` : d;
+}
+
 export function parseListParams(q: URLSearchParams) {
   return {
     page: Math.max(1, Number(q.get("page")) || 1),
@@ -126,8 +134,10 @@ export async function listKonsinyasi(params: ReturnType<typeof parseListParams>)
     where.push("k.status = ?");
     args.push(params.status);
   }
-  if (params.dateFrom) { where.push("k.tanggal >= ?"); args.push(`${params.dateFrom} 00:00:00`); }
-  if (params.dateTo) { where.push("k.tanggal <= ?"); args.push(`${params.dateTo} 23:59:59`); }
+  // Filter tanggal = hari WIB (UTC+7); kolom DATETIME tersimpan UTC sehingga
+  // batas hari dikonversi ke instan UTC (27 Sep WIB = 26 Sep 17:00 UTC s/d 27 Sep 16:59 UTC).
+  if (params.dateFrom) { where.push("k.tanggal >= ?"); args.push(wibDayBoundary(params.dateFrom, false)); }
+  if (params.dateTo) { where.push("k.tanggal <= ?"); args.push(wibDayBoundary(params.dateTo, true)); }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   const count = await query<RowDataPacket[]>(`SELECT COUNT(*) total FROM konsinyasi k LEFT JOIN supplier s ON s.id = k.supplier_id ${whereSql}`, args);
@@ -371,6 +381,51 @@ export async function updateKonsinyasiStatus(id: number, status: KonsinyasiStatu
   const current = await getKonsinyasiById(id);
   if (!current) return null;
   await execute(`UPDATE konsinyasi SET status = ? WHERE id = ?`, [status, id]);
+  return getKonsinyasiById(id);
+}
+
+/**
+ * Pengembalian (retur) sisa konsinyasi — sebagian atau penuh: kurangi stok utk
+ * qty yang dikembalikan, tambah qty_dikembalikan per item. Bila seluruh item
+ * tuntas (qtyKonsinyasi = qtyTerjual + qtyDikembalikan) → status otomatis
+ * 'selesai'.
+ */
+export async function returKonsinyasi(
+  id: number,
+  items: ReturKonsinyasiItemInput[],
+): Promise<KonsinyasiDTO | null> {
+  const current = await getKonsinyasiById(id);
+  if (!current) return null;
+  if (current.status === "selesai") throw new Error("SUDAH_SELESAI");
+  const byId = new Map(current.items.map((it) => [it.id, it]));
+  let totalQty = 0;
+  for (const r of items) {
+    const it = byId.get(r.id);
+    if (!it) throw new Error("ITEM_NOT_FOUND");
+    if (!Number.isInteger(r.qtyReturn) || r.qtyReturn <= 0) throw new Error("QTY_INVALID");
+    const sisa = Math.max(0, it.qtyKonsinyasi - it.qtyTerjual - it.qtyDikembalikan);
+    if (r.qtyReturn > sisa) throw new Error("QTY_MELEBIHI_SISA");
+    totalQty += r.qtyReturn;
+  }
+  if (totalQty === 0) throw new Error("QTY_KOSONG");
+  await withTransaction(async (conn) => {
+    for (const r of items) {
+      const it = byId.get(r.id);
+      if (!it) continue;
+      if (it.produkSatuanId) {
+        await mutasiStok(conn, it.produkSatuanId, -r.qtyReturn, `Retur konsinyasi ${current.noKonsinyasi} — ${it.namaProduk} (${it.satuanNama ?? ""})`);
+      }
+      await conn.query(
+        `UPDATE konsinyasi_item SET qty_dikembalikan = qty_dikembalikan + ? WHERE id = ?`,
+        [r.qtyReturn, r.id],
+      );
+    }
+    const tuntas = current.items.every((it) => {
+      const tambahan = items.find((r) => r.id === it.id)?.qtyReturn ?? 0;
+      return it.qtyKonsinyasi <= it.qtyTerjual + it.qtyDikembalikan + tambahan;
+    });
+    if (tuntas) await conn.query(`UPDATE konsinyasi SET status = 'selesai' WHERE id = ?`, [id]);
+  });
   return getKonsinyasiById(id);
 }
 

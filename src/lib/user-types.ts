@@ -26,6 +26,7 @@ export const FEATURE_CODES = [
   "konsinyasi",
   "laporan",
   "pelanggan",
+  "supplier",
   "commerce",
   "pemetaan",
   "settings",

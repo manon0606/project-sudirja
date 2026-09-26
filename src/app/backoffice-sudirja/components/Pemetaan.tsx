@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
 import { ApiClientError } from "@/lib/api-client";
 import {
   bulkCreateOngkir, createOngkir, deleteOngkir, downloadOngkirCsv, listOngkir, updateOngkir,
@@ -10,7 +11,7 @@ import type { CreateOngkirInput, OngkirDTO } from "@/lib/ongkir-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
   X, ChevronLeft, ChevronRight, ChevronDown, Plus, Edit, Trash2, MapPin, Download, Upload,
-  CheckCircle
+  CheckCircle, CheckSquare, Square, AlertTriangle
 } from "lucide-react";
 
 type SortField = "id" | "kode" | "kecamatan" | "ongkir";
@@ -41,11 +42,9 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
   const set = (key: keyof CreateOngkirInput, next: unknown) => onChange({ ...value, [key]: next } as CreateOngkirInput);
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-lg mx-4 shadow-2xl overflow-hidden">
       <form
         onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
-        className="bg-white rounded-2xl w-full max-w-lg mx-4 max-h-[92vh] overflow-hidden shadow-2xl flex flex-col"
       >
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -57,7 +56,7 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
           </button>
         </div>
 
-        <div className="overflow-y-auto px-6 py-4 flex-1">
+        <div className="overflow-y-auto max-h-[60vh] px-6 py-4">
           <div className="space-y-4">
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kode *</span>
@@ -122,7 +121,91 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Single Delete Confirm Modal
+// ---------------------------------------------------------------------------
+
+interface DeleteConfirmModalProps {
+  item: OngkirDTO;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+function DeleteConfirmModal({ item, busy, onClose, onConfirm }: DeleteConfirmModalProps) {
+  return (
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(228,11,24,0.1)' }}>
+          <AlertTriangle className="w-5 h-5" style={{ color: '#e40b18' }} />
+        </div>
+        <h2 style={{ color: '#000000' }}>Konfirmasi Hapus</h2>
+      </div>
+      <div className="px-6 py-4">
+        <p style={{ color: '#1a0408' }}>
+          Hapus data pemetaan <span className="font-semibold" style={{ color: '#000000' }}>{item.kecamatan}</span> ({item.kode})?
+        </p>
+        <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.6 }}>Tindakan ini tidak dapat dibatalkan.</p>
+      </div>
+      <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+        <button onClick={onClose}
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
+          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+          Batal
+        </button>
+        <button onClick={onConfirm} disabled={busy}
+          className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: '#e40b18' }}>
+          {busy ? "Menghapus..." : "Ya, Hapus"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Delete Confirm Modal
+// ---------------------------------------------------------------------------
+
+interface BulkDeleteConfirmModalProps {
+  count: number;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+function BulkDeleteConfirmModal({ count, busy, onClose, onConfirm }: BulkDeleteConfirmModalProps) {
+  return (
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(228,11,24,0.1)' }}>
+          <AlertTriangle className="w-5 h-5" style={{ color: '#e40b18' }} />
+        </div>
+        <h2 style={{ color: '#000000' }}>Konfirmasi Hapus Massal</h2>
+      </div>
+      <div className="px-6 py-4">
+        <p style={{ color: '#1a0408' }}>
+          Hapus <span className="font-semibold" style={{ color: '#000000' }}>{count} data</span> pemetaan yang dipilih?
+        </p>
+        <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.6 }}>Tindakan ini tidak dapat dibatalkan.</p>
+      </div>
+      <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+        <button onClick={onClose}
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
+          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+          Batal
+        </button>
+        <button onClick={onConfirm} disabled={busy}
+          className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: '#e40b18' }}>
+          {busy ? "Menghapus..." : `Ya, Hapus ${count} Data`}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -146,6 +229,7 @@ export default function Pemetaan() {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<OngkirDTO | null>(null);
   const [deleting, setDeleting] = useState<OngkirDTO | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [form, setForm] = useState<CreateOngkirInput>(emptyForm);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -185,8 +269,10 @@ export default function Pemetaan() {
     return sortDirection === "asc" ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
   };
 
+  const allPageSelected = items.length > 0 && items.every((o) => selected.has(o.id));
+
   const handleSelectAll = () => {
-    if (items.length > 0 && items.every((o) => selected.has(o.id))) setSelected(new Set());
+    if (allPageSelected) setSelected(new Set());
     else setSelected(new Set(items.map((o) => o.id)));
   };
 
@@ -234,6 +320,22 @@ export default function Pemetaan() {
       await load();
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : "Gagal menghapus data ongkir.");
+    } finally { setBusy(false); }
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selected.size === 0) return;
+    setBusy(true);
+    try {
+      const kodes = items.filter((o) => selected.has(o.id)).map((o) => o.kode);
+      const results = await Promise.allSettled(kodes.map((kode) => deleteOngkir(kode)));
+      const failed = results.filter((r) => r.status === "rejected").length;
+      setShowBulkDeleteConfirm(false);
+      setSelected(new Set());
+      await load();
+      if (failed > 0) setError(`Gagal menghapus ${failed} dari ${kodes.length} data ongkir.`);
+    } catch (e) {
+      setError(e instanceof ApiClientError ? e.message : "Gagal menghapus data ongkir terpilih.");
     } finally { setBusy(false); }
   };
 
@@ -294,6 +396,7 @@ export default function Pemetaan() {
 
   const rangeStart = total === 0 ? 0 : (page - 1) * itemsPerPage + 1;
   const rangeEnd = Math.min(page * itemsPerPage, total);
+  const hasActiveFilters = !!search;
 
   return (
     <div className="flex h-screen" style={{ backgroundColor: '#fcfaff' }}>
@@ -310,90 +413,84 @@ export default function Pemetaan() {
               </p>
             </div>
 
-            {selected.size > 0 ? (
-              <div className="flex items-center gap-3">
-                <span style={{ color: '#1a0408' }}>{selected.size} data dipilih</span>
-                <button onClick={() => void bulkSetActive(true)} disabled={busy}
-                  className="px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            <div className="flex items-center gap-3">
+              <button onClick={() => void exportData()}
+                className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all hover:opacity-90"
+                style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
+                title="Export seluruh data ongkir (CSV)">
+                <Download className="w-5 h-5" />
+                Export Data
+              </button>
+              <div className="relative">
+                <button onClick={() => setShowAddMenu(!showAddMenu)}
+                  className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
                   style={{ backgroundColor: '#27b446' }}>
-                  Aktifkan
+                  <Plus className="w-5 h-5" />
+                  Tambah Data
+                  <ChevronDown className="w-4 h-4" />
                 </button>
-                <button onClick={() => void bulkSetActive(false)} disabled={busy}
-                  className="px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                  style={{ backgroundColor: '#e40b18' }}>
-                  Nonaktifkan
-                </button>
+                {showAddMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
+                      <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                        style={{ color: '#1a0408' }}>
+                        <Edit className="w-5 h-5" style={{ color: '#27b446' }} />
+                        <div>
+                          <p style={{ color: '#000000' }}>Manual</p>
+                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p>
+                        </div>
+                      </button>
+                      <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
+                        style={{ color: '#1a0408' }}>
+                        <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
+                        <div>
+                          <p style={{ color: '#000000' }}>Bulk Upload</p>
+                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <button onClick={() => void exportData()}
-                  className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all hover:opacity-90"
-                  style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
-                  title="Export seluruh data ongkir (CSV)">
-                  <Download className="w-5 h-5" />
-                  Export Data
-                </button>
-                <div className="relative">
-                  <button onClick={() => setShowAddMenu(!showAddMenu)}
-                    className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
-                    style={{ backgroundColor: '#27b446' }}>
-                    <Plus className="w-5 h-5" />
-                    Tambah Data
-                    <ChevronDown className="w-4 h-4" />
-                  </button>
-                  {showAddMenu && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
-                      <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
-                        <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
-                          className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
-                          style={{ color: '#1a0408' }}>
-                          <Edit className="w-5 h-5" style={{ color: '#27b446' }} />
-                          <div>
-                            <p style={{ color: '#000000' }}>Manual</p>
-                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p>
-                          </div>
-                        </button>
-                        <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
-                          className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
-                          style={{ color: '#1a0408' }}>
-                          <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
-                          <div>
-                            <p style={{ color: '#000000' }}>Bulk Upload</p>
-                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
-                          </div>
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
-              </div>
-            )}
+              <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
+            </div>
           </div>
         </div>
 
         {/* Filter Section */}
         <div className="bg-white border-b border-gray-200 px-8 py-4">
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex-1 min-w-[250px] relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
-              <input
-                type="text"
-                placeholder="Cari kode atau kecamatan..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full pl-10 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-              />
-              {search && (
-                <button onClick={() => { setSearch(""); setPage(1); }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-gray-100 transition-colors"
-                  style={{ color: '#1a0408', opacity: 0.6 }}>
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+            <div className="flex-1 min-w-[250px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
+                <input
+                  type="text"
+                  placeholder="Cari kode atau kecamatan..."
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                  style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                />
+              </div>
             </div>
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setSearch(""); setPage(1); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors"
+                style={{ borderColor: '#e40b18', color: '#e40b18' }}
+              >
+                <X className="w-4 h-4" />
+                Hapus Filter
+              </button>
+            )}
+          </div>
+          <div className="mt-4">
+            <p style={{ color: '#1a0408', opacity: 0.6 }}>
+              Menampilkan {items.length} dari {total} data
+            </p>
           </div>
         </div>
 
@@ -405,24 +502,65 @@ export default function Pemetaan() {
             </div>
           )}
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          {/* Bulk action bar */}
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3 mb-4 px-4 py-3 rounded-lg border-2" style={{ borderColor: '#e40b18', backgroundColor: 'rgba(228,11,24,0.04)' }}>
+              <span className="text-sm" style={{ color: '#1a0408' }}>
+                {selected.size} data dipilih
+              </span>
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  onClick={() => void bulkSetActive(true)}
+                  disabled={busy}
+                  className="px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#27b446' }}
+                >
+                  Aktifkan
+                </button>
+                <button
+                  onClick={() => void bulkSetActive(false)}
+                  disabled={busy}
+                  className="px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#e40b18' }}
+                >
+                  Nonaktifkan
+                </button>
+                <button
+                  onClick={() => setShowBulkDeleteConfirm(true)}
+                  disabled={busy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#e40b18' }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Hapus ({selected.size})
+                </button>
+                <button
+                  onClick={() => setSelected(new Set())}
+                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-gray-50"
+                  style={{ borderColor: '#e5e7eb', color: '#1a0408' }}
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             {loading ? (
               <div className="py-16 text-center">
                 <p style={{ color: '#1a0408', opacity: 0.6 }}>Memuat data pemetaan & ongkir...</p>
               </div>
-            ) : items.length > 0 ? (
+            ) : (
               <>
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead>
-                      <tr style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
-                        <th className="px-6 py-4 text-center" style={{ width: '50px' }}>
-                          <button onClick={handleSelectAll} className="flex items-center justify-center" style={{ color: '#27b446' }}>
-                            {items.length > 0 && items.every((o) => selected.has(o.id)) ? (
-                              <CheckCircle className="w-5 h-5" />
-                            ) : (
-                              <span className="w-5 h-5 border-2 rounded" style={{ borderColor: '#27b446' }} />
-                            )}
+                    <thead style={{ backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
+                      <tr>
+                        <th className="px-4 py-4 w-10">
+                          <button onClick={handleSelectAll} className="flex items-center justify-center"
+                            style={{ color: allPageSelected ? '#27b446' : '#9ca3af' }}
+                            title={allPageSelected ? "Batalkan pilihan" : "Pilih semua"}>
+                            {allPageSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                           </button>
                         </th>
                         <th className="px-6 py-4 text-left">
@@ -450,137 +588,132 @@ export default function Pemetaan() {
                           </button>
                         </th>
                         <th className="px-6 py-4 text-center" style={{ color: '#000000' }}>Status</th>
-                        <th className="px-6 py-4 text-center" style={{ color: '#000000' }}>Aksi</th>
+                        <th className="px-6 py-4 text-center" style={{ color: '#000000', width: 90 }}>Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((item, index) => (
-                        <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                          style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
-                          <td className="px-6 py-4 text-center">
-                            <button onClick={() => handleSelect(item.id, !selected.has(item.id))}
-                              className="flex items-center justify-center" style={{ color: '#27b446' }}>
-                              {selected.has(item.id) ? (
-                                <CheckCircle className="w-5 h-5" />
-                              ) : (
-                                <span className="w-5 h-5 border-2 rounded" style={{ borderColor: '#27b446' }} />
-                              )}
-                            </button>
-                          </td>
-                          <td className="px-6 py-4" style={{ color: '#27b446', fontFamily: 'monospace' }}>{item.id}</td>
-                          <td className="px-6 py-4">
-                            <span className="px-3 py-1 rounded-lg text-sm" style={{ backgroundColor: '#f3f4f6', fontFamily: 'monospace', color: '#1a0408' }}>
-                              {item.kode}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex items-center gap-2" style={{ color: '#1a0408' }}>
-                              <MapPin className="w-4 h-4" style={{ color: '#27b446' }} />
-                              {item.kecamatan}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right font-medium" style={{ color: '#000000' }}>{formatRp(item.ongkir)}</td>
-                          <td className="px-6 py-4 text-center">
-                            {item.isActive ? (
-                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
-                                style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)', color: '#27b446' }}>
-                                <CheckCircle className="w-4 h-4" />
-                                Aktif
-                              </span>
-                            ) : (
-                              <span className="inline-flex px-3 py-1 rounded-full text-sm"
-                                style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
-                                Nonaktif
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                onClick={() => {
-                                  setEditing(item);
-                                  setForm({ kode: item.kode, kecamatan: item.kecamatan, ongkir: item.ongkir, isActive: item.isActive });
-                                }}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 text-sm transition-all hover:opacity-80"
-                                style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
-                              >
-                                <Edit className="w-4 h-4" />
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => setDeleting(item)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 text-sm transition-all hover:opacity-80"
-                                style={{ borderColor: '#e40b18', color: '#e40b18', backgroundColor: 'rgba(228, 11, 24, 0.05)' }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                Hapus
-                              </button>
-                            </div>
+                      {items.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-12 text-center" style={{ color: '#1a0408', opacity: 0.4 }}>
+                            {hasActiveFilters ? "Tidak ada data yang sesuai dengan filter" : "Belum ada data"}
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        items.map((item) => (
+                          <tr key={item.id} className="border-b border-gray-200 transition-colors hover:bg-gray-50">
+                            <td className="px-4 py-4">
+                              <button onClick={() => handleSelect(item.id, !selected.has(item.id))}
+                                className="flex items-center justify-center"
+                                style={{ color: selected.has(item.id) ? '#27b446' : '#9ca3af' }}
+                                title={selected.has(item.id) ? "Batalkan pilihan" : "Pilih data"}>
+                                {selected.has(item.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                              </button>
+                            </td>
+                            <td className="px-6 py-4" style={{ color: '#27b446' }}>{item.id}</td>
+                            <td className="px-6 py-4">
+                              <span className="px-3 py-1 rounded-lg text-sm" style={{ backgroundColor: '#f3f4f6', fontFamily: 'monospace', color: '#1a0408' }}>
+                                {item.kode}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="inline-flex items-center gap-2" style={{ color: '#1a0408' }}>
+                                <MapPin className="w-4 h-4" style={{ color: '#27b446' }} />
+                                {item.kecamatan}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right" style={{ color: '#000000' }}>{formatRp(item.ongkir)}</td>
+                            <td className="px-6 py-4 text-center">
+                              {item.isActive ? (
+                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
+                                  style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)', color: '#27b446' }}>
+                                  <CheckCircle className="w-4 h-4" />
+                                  Aktif
+                                </span>
+                              ) : (
+                                <span className="inline-flex px-3 py-1 rounded-full text-sm"
+                                  style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                                  Nonaktif
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditing(item);
+                                    setForm({ kode: item.kode, kecamatan: item.kecamatan, ongkir: item.ongkir, isActive: item.isActive });
+                                  }}
+                                  className="p-2 rounded-lg transition-colors hover:bg-gray-100"
+                                  style={{ color: '#27b446' }}
+                                  title="Edit"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setDeleting(item)}
+                                  className="p-2 rounded-lg transition-colors hover:bg-gray-100"
+                                  style={{ color: '#e40b18' }}
+                                  title="Hapus"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Pagination */}
-                <div className="border-t border-gray-200 px-6 py-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span style={{ color: '#1a0408', opacity: 0.7 }}>Tampilkan</span>
-                    <div className="relative">
-                      <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setPage(1); }}
-                        className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 cursor-pointer"
-                        style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}>
-                        <option value={10}>10</option>
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                      </select>
-                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
+                {items.length > 0 && (
+                  <div className="border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span style={{ color: '#1a0408', opacity: 0.7 }}>Tampilkan</span>
+                      <div className="relative">
+                        <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setPage(1); }}
+                          className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 cursor-pointer"
+                          style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}>
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
+                      </div>
+                      <span style={{ color: '#1a0408', opacity: 0.7 }}>
+                        Menampilkan {rangeStart} - {rangeEnd} dari {total} data
+                      </span>
                     </div>
-                    <span style={{ color: '#1a0408', opacity: 0.7 }}>
-                      Menampilkan {rangeStart} - {rangeEnd} dari {total} data
-                    </span>
-                  </div>
 
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                      className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                      style={{ color: '#1a0408' }}>
-                      <ChevronLeft className="w-5 h-5" />
-                    </button>
-                    <div className="flex gap-1">
-                      {pageNumbers.map((pageNum) => (
-                        <button key={pageNum} onClick={() => setPage(pageNum)} className="w-10 h-10 rounded-lg transition-colors"
-                          style={{
-                            backgroundColor: page === pageNum ? '#27b446' : 'transparent',
-                            color: page === pageNum ? 'white' : '#1a0408',
-                            border: page === pageNum ? 'none' : '1px solid #e5e7eb'
-                          }}>
-                          {pageNum}
-                        </button>
-                      ))}
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
+                        className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                        style={{ color: '#1a0408' }}>
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <div className="flex gap-1">
+                        {pageNumbers.map((pageNum) => (
+                          <button key={pageNum} onClick={() => setPage(pageNum)} className="w-10 h-10 rounded-lg transition-colors"
+                            style={{
+                              backgroundColor: page === pageNum ? '#27b446' : 'transparent',
+                              color: page === pageNum ? 'white' : '#1a0408',
+                              border: page === pageNum ? 'none' : '1px solid #e5e7eb'
+                            }}>
+                            {pageNum}
+                          </button>
+                        ))}
+                      </div>
+                      <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                        className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                        style={{ color: '#1a0408' }}>
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
                     </div>
-                    <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                      className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                      style={{ color: '#1a0408' }}>
-                      <ChevronRight className="w-5 h-5" />
-                    </button>
                   </div>
-                </div>
+                )}
               </>
-            ) : (
-              <div className="py-16 text-center">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)' }}>
-                    <MapPin className="w-8 h-8" style={{ color: '#27b446' }} />
-                  </div>
-                  <div>
-                    <p className="text-lg mb-1" style={{ color: '#000000' }}>Data ongkir tidak ditemukan</p>
-                    <p style={{ color: '#1a0408', opacity: 0.6 }}>Coba gunakan kata kunci pencarian yang berbeda</p>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         </div>
@@ -613,33 +746,24 @@ export default function Pemetaan() {
         />
       )}
 
-      {/* Delete confirm modal */}
+      {/* Single delete confirm modal */}
       {deleting && (
-        <div className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-          <div className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 style={{ color: '#000000' }}>Hapus Data Ongkir</h2>
-            </div>
-            <div className="px-6 py-4">
-              <p style={{ color: '#1a0408' }}>
-                Yakin ingin menghapus <strong>{deleting.kecamatan}</strong> ({deleting.kode})? Tindakan ini tidak dapat dibatalkan.
-              </p>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
-              <button onClick={() => setDeleting(null)}
-                className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-                style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
-                Batal
-              </button>
-              <button onClick={() => void confirmDelete()} disabled={busy}
-                className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: '#e40b18' }}>
-                {busy ? "Menghapus..." : "Hapus"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteConfirmModal
+          item={deleting}
+          busy={busy}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => void confirmDelete()}
+        />
+      )}
+
+      {/* Bulk delete confirm modal */}
+      {showBulkDeleteConfirm && (
+        <BulkDeleteConfirmModal
+          count={selected.size}
+          busy={busy}
+          onClose={() => setShowBulkDeleteConfirm(false)}
+          onConfirm={() => void confirmBulkDelete()}
+        />
       )}
     </div>
   );

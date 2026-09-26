@@ -4,11 +4,13 @@ import AdminSidebar from "./AdminSidebar";
 import { ApiClientError } from "@/lib/api-client";
 import { bulkCreatePromos, createPromo, downloadPromoCsv, listPromos, updatePromo } from "@/lib/promo-api";
 import { parseCsv } from "./BulkUploadReference";
-import type { CreatePromoInput, PromoDTO, PromoType } from "@/lib/promo-types";
+import Modal from "./Modal";
+import DatePicker from "./DatePicker";
+import type { BulkPromoResult, CreatePromoInput, PromoDTO, PromoType } from "@/lib/promo-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
   X, ChevronLeft, ChevronRight, ChevronDown, Tag, Calendar, CheckCircle, Percent, DollarSign, Truck,
-  CheckSquare, Square, Download, Plus, Upload, Edit
+  CheckSquare, Square, Download, Plus, Upload, Edit, Pencil, Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -56,7 +58,7 @@ function formatDiskon(promo: PromoDTO): string {
 }
 
 // ---------------------------------------------------------------------------
-// Form modal (create & edit) — tema sama dengan modal detail promo.
+// Form modal (create & edit) — mengikuti desain V3.1 (AddPromoModal/EditPromoModal).
 // ---------------------------------------------------------------------------
 
 interface PromoFormProps {
@@ -73,124 +75,255 @@ function PromoForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }
   const set = (key: keyof CreatePromoInput, next: unknown) =>
     onChange({ ...value, [key]: next } as CreatePromoInput);
 
+  const [newSyarat, setNewSyarat] = useState("");
+  const [dateErrors, setDateErrors] = useState<Record<string, string>>({});
+  const isEdit = title.startsWith("Edit");
+
+  const addSyarat = () => {
+    const text = newSyarat.trim();
+    if (!text) return;
+    set("syaratKetentuan", [...(value.syaratKetentuan ?? []), text]);
+    setNewSyarat("");
+  };
+
+  const removeSyarat = (idx: number) =>
+    set("syaratKetentuan", (value.syaratKetentuan ?? []).filter((_, i) => i !== idx));
+
+  // DatePicker memakai "YYYY-MM-DD", sedangkan state tetap "YYYY-MM-DDTHH:mm"
+  // (format yang dikirim ke API — konversi tetap lewat toDateTimeLocal).
+  const pickDate = (key: "tanggalMulai" | "tanggalBerakhir", d: string) => {
+    const time = value[key].includes("T") ? value[key].slice(11) : "00:00";
+    set(key, d ? `${d}T${time}` : "");
+    setDateErrors((e) => ({ ...e, [key]: "" }));
+  };
+
+  const handleSubmit = () => {
+    const errors: Record<string, string> = {};
+    if (!value.tanggalMulai) errors.tanggalMulai = "Tanggal mulai wajib diisi";
+    if (!value.tanggalBerakhir) errors.tanggalBerakhir = "Tanggal berakhir wajib diisi";
+    if (tanggalRangeError) errors.tanggalBerakhir = tanggalRangeError;
+    setDateErrors(errors);
+    if (Object.keys(errors).length === 0 && !maksDiskonError) onSubmit();
+  };
+
+  // Validasi live: tanggal mulai tidak boleh setelah tanggal berakhir,
+  // dan Maksimal Diskon harus lebih besar dari Nilai Diskon (khusus tipe Diskon %).
+  const tanggalRangeError =
+    value.tanggalMulai && value.tanggalBerakhir && value.tanggalMulai > value.tanggalBerakhir
+      ? "Tanggal berakhir tidak boleh sebelum tanggal mulai"
+      : "";
+  const maksDiskonError =
+    value.tipe === "Diskon %" &&
+    value.maksimalDiskon != null && value.maksimalDiskon > 0 &&
+    value.nilaiDiskon > 0 && value.maksimalDiskon <= value.nilaiDiskon
+      ? "Maksimal Diskon harus lebih besar dari Nilai Diskon"
+      : "";
+
+  // Cegah nilai input angka berubah tak sengaja saat scroll mouse (human error).
+  const blockWheel = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
+
+  const inputClass = "w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 bg-white";
+  const selectClass = "w-full pl-3 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 bg-white appearance-none cursor-pointer";
+  const inputStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as React.CSSProperties;
+  const labelStyle = { color: '#1a0408' };
+  const errorStyle = { color: '#e40b18' };
+
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
+    <Modal onClose={onClose} className="w-full max-w-3xl mx-4">
       <form
-        onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
-        className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[92vh] overflow-hidden shadow-2xl flex flex-col"
+        onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
+        className="bg-white rounded-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
           <div>
             <h2 style={{ color: '#000000' }}>{title}</h2>
-            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>{subtitle}</p>
+            <p className="text-sm mt-1" style={{ color: isEdit ? '#27b446' : '#6b7280' }}>{subtitle}</p>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="overflow-y-auto px-6 py-4 flex-1">
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {/* Row 1: Kode + Tipe */}
           <div className="grid grid-cols-2 gap-4">
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kode Promo *</span>
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>
+                Kode Promo <span style={{ color: '#e40b18' }}>*</span>
+              </label>
               <input
-                required value={value.kode} onChange={(e) => set("kode", e.target.value)}
-                placeholder="cth: DISC10"
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', fontFamily: 'monospace', '--tw-ring-color': '#27b446' } as any}
+                type="text"
+                required
+                value={value.kode}
+                onChange={(e) => set("kode", e.target.value)}
+                className={inputClass}
+                style={{ ...inputStyle, fontFamily: 'monospace', textTransform: 'uppercase' }}
+                placeholder="Contoh: DISC10"
               />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Nama Promo *</span>
-              <input
-                required value={value.nama} onChange={(e) => set("nama", e.target.value)}
-                placeholder="cth: Diskon 10% Semua Produk"
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-              />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tipe Promo *</span>
+            </div>
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>
+                Tipe Promo <span style={{ color: '#e40b18' }}>*</span>
+              </label>
               <div className="relative">
                 <select
                   value={value.tipe}
-                  onChange={(e) => set("tipe", e.target.value)}
-                  className="appearance-none w-full pl-4 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
-                  style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                  onChange={(e) => {
+                    const tipe = e.target.value;
+                    // Maksimal diskon hanya berlaku untuk tipe Diskon %
+                    onChange({
+                      ...value,
+                      tipe,
+                      maksimalDiskon: tipe === "Diskon %" ? value.maksimalDiskon : null,
+                    } as CreatePromoInput);
+                  }}
+                  className={selectClass}
+                  style={inputStyle}
                 >
                   {types.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
               </div>
+            </div>
+          </div>
+
+          {/* Nama */}
+          <div>
+            <label className="block mb-2 text-sm" style={labelStyle}>
+              Nama Promo <span style={{ color: '#e40b18' }}>*</span>
             </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Nilai Diskon *</span>
+            <input
+              type="text"
+              required
+              value={value.nama}
+              onChange={(e) => set("nama", e.target.value)}
+              className={inputClass}
+              style={inputStyle}
+              placeholder="Nama promo yang mudah dimengerti"
+            />
+          </div>
+
+          {/* Deskripsi */}
+          <div>
+            <label className="block mb-2 text-sm" style={labelStyle}>Deskripsi</label>
+            <textarea
+              value={value.deskripsi}
+              onChange={(e) => set("deskripsi", e.target.value)}
+              className={inputClass}
+              style={inputStyle}
+              rows={2}
+              placeholder="Deskripsi singkat tentang promo ini"
+            />
+          </div>
+
+          {/* Row: Nilai Diskon + Minimal Belanja */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>
+                Nilai Diskon {value.tipe === "Diskon %" ? "(%)" : "(Rp)"} <span style={{ color: '#e40b18' }}>*</span>
+              </label>
               <input
-                required type="number" min="1" value={value.nilaiDiskon || ""}
+                type="number"
+                onWheel={blockWheel}
+                required min="1"
+                value={value.nilaiDiskon || ""}
                 onChange={(e) => set("nilaiDiskon", Number(e.target.value))}
+                className={inputClass}
+                style={inputStyle}
                 placeholder={value.tipe === "Diskon %" ? "cth: 10 (persen)" : "cth: 25000 (rupiah)"}
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
               />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Minimal Belanja</span>
+            </div>
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>Minimal Belanja (Rp)</label>
               <input
-                type="number" min="0" value={value.minimalBelanja}
+                type="number"
+                onWheel={blockWheel}
+                min="0"
+                value={value.minimalBelanja}
                 onChange={(e) => set("minimalBelanja", Number(e.target.value))}
+                className={inputClass}
+                style={inputStyle}
                 placeholder="0 = tanpa minimal"
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
               />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Maksimal Diskon</span>
+            </div>
+          </div>
+
+          {/* Row: Maksimal Diskon (khusus Diskon %) + Batas Kuota */}
+          <div className="grid grid-cols-2 gap-4">
+            {value.tipe === "Diskon %" && (
+              <div>
+                <label className="block mb-2 text-sm" style={labelStyle}>Maksimal Diskon (Rp)</label>
+                <input
+                  type="number"
+                  onWheel={blockWheel}
+                  min="0"
+                  value={value.maksimalDiskon ?? ""}
+                  onChange={(e) => set("maksimalDiskon", e.target.value ? Number(e.target.value) : null)}
+                  className={inputClass}
+                  style={inputStyle}
+                  placeholder="Kosong = tidak ada batas"
+                />
+                {maksDiskonError && <p className="text-xs mt-1" style={errorStyle}>{maksDiskonError}</p>}
+              </div>
+            )}
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>
+                Batas Kuota <span style={{ color: '#e40b18' }}>*</span>
+              </label>
               <input
-                type="number" min="0" value={value.maksimalDiskon ?? ""}
-                onChange={(e) => set("maksimalDiskon", e.target.value ? Number(e.target.value) : null)}
-                placeholder="Kosongkan jika tanpa batas"
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-              />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal Mulai *</span>
-              <input
-                required type="datetime-local" value={value.tanggalMulai}
-                onChange={(e) => set("tanggalMulai", e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-              />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal Berakhir *</span>
-              <input
-                required type="datetime-local" value={value.tanggalBerakhir}
-                onChange={(e) => set("tanggalBerakhir", e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-              />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Batas Kuota *</span>
-              <input
-                required type="number" min="1" value={value.batasKuota}
+                type="number"
+                onWheel={blockWheel}
+                required min="1"
+                value={value.batasKuota}
                 onChange={(e) => set("batasKuota", Number(e.target.value))}
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                className={inputClass}
+                style={inputStyle}
               />
-            </label>
-            <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Status</span>
+            </div>
+          </div>
+
+          {/* Row: Tanggal Mulai + Berakhir */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>
+                Tanggal Mulai <span style={{ color: '#e40b18' }}>*</span>
+              </label>
+              <DatePicker
+                value={value.tanggalMulai.slice(0, 10)}
+                onChange={(v) => pickDate("tanggalMulai", v)}
+                max={value.tanggalBerakhir.slice(0, 10) || undefined}
+                className={inputClass + " cursor-pointer"}
+                style={inputStyle}
+              />
+              {dateErrors.tanggalMulai && <p className="text-xs mt-1" style={errorStyle}>{dateErrors.tanggalMulai}</p>}
+            </div>
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>
+                Tanggal Berakhir <span style={{ color: '#e40b18' }}>*</span>
+              </label>
+              <DatePicker
+                value={value.tanggalBerakhir.slice(0, 10)}
+                onChange={(v) => pickDate("tanggalBerakhir", v)}
+                min={value.tanggalMulai.slice(0, 10) || undefined}
+                className={inputClass + " cursor-pointer"}
+                style={inputStyle}
+              />
+              {(dateErrors.tanggalBerakhir || tanggalRangeError) && (
+                <p className="text-xs mt-1" style={errorStyle}>{dateErrors.tanggalBerakhir || tanggalRangeError}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Status */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block mb-2 text-sm" style={labelStyle}>Status</label>
               <button
                 type="button"
                 onClick={() => set("isActive", !value.isActive)}
-                className={`w-full px-4 py-2 rounded-lg border-2 transition-colors flex items-center justify-center gap-2 ${
-                  value.isActive ? '' : ''
-                }`}
+                className="w-full px-4 py-2 rounded-lg border-2 transition-colors flex items-center justify-center gap-2"
                 style={{
                   borderColor: '#27b446',
                   color: value.isActive ? '#27b446' : '#e40b18',
@@ -200,56 +333,76 @@ function PromoForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }
                 {value.isActive ? <CheckCircle className="w-4 h-4" /> : <X className="w-4 h-4" />}
                 {value.isActive ? "Aktif" : "Nonaktif"}
               </button>
-            </label>
-            <label className="col-span-2">
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Deskripsi</span>
+            </div>
+          </div>
+
+          {/* Syarat & Ketentuan */}
+          <div>
+            <label className="block mb-2 text-sm" style={labelStyle}>Syarat & Ketentuan</label>
+            <div className="space-y-2 mb-3">
+              {(value.syaratKetentuan ?? []).map((s, idx) => (
+                <div key={idx} className="flex items-start gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+                  <span className="flex-1 text-sm whitespace-pre-wrap break-words" style={{ color: '#1a0408' }}>• {s}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeSyarat(idx)}
+                    className="p-1 rounded hover:bg-gray-200 transition-colors flex-shrink-0"
+                    style={{ color: '#e40b18' }}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 items-start">
               <textarea
-                value={value.deskripsi}
-                onChange={(e) => set("deskripsi", e.target.value)}
+                value={newSyarat}
+                onChange={(e) => setNewSyarat(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addSyarat(); } }}
                 rows={2}
-                placeholder="Deskripsi singkat promo"
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+                className={inputClass + " flex-1 resize-y"}
+                style={inputStyle}
+                placeholder="Tambah syarat ketentuan (Enter untuk baris baru; Ctrl+Enter atau tombol Tambah untuk menyimpan)..."
               />
-            </label>
-            <label className="col-span-2">
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Syarat & Ketentuan (satu per baris)</span>
-              <textarea
-                value={value.syaratKetentuan?.join("\n") ?? ""}
-                onChange={(e) => set("syaratKetentuan", e.target.value.split("\n").filter(Boolean))}
-                rows={3}
-                placeholder={"Minimal belanja Rp 100.000\nBerlaku untuk semua produk"}
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
-              />
-            </label>
+              <button
+                type="button"
+                onClick={addSyarat}
+                className="px-4 py-2 rounded-lg text-white flex items-center gap-1 transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#27b446' }}
+              >
+                <Plus className="w-4 h-4" />
+                Tambah
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-3">
+        <div className="px-6 py-4 border-t border-gray-200 flex gap-3 flex-shrink-0">
           <button
-            type="button" onClick={onClose}
-            className="px-4 py-2 rounded-lg border transition-colors"
-            style={{ borderColor: '#1a0408', color: '#1a0408' }}
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}
           >
             Batal
           </button>
           <button
-            type="submit" disabled={busy}
-            className="px-6 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            type="submit"
+            disabled={busy}
+            className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: '#27b446' }}
           >
-            {busy ? "Menyimpan..." : title.startsWith("Edit") ? "Simpan Perubahan" : "Simpan Promo"}
+            {busy ? "Menyimpan..." : isEdit ? "Simpan Perubahan" : "Tambah Promo"}
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Promo Detail Modal — sesuai desain awal desain-sudirja + tombol Edit.
+// Promo Detail Modal — sesuai desain V3.1 + tombol Edit.
 // ---------------------------------------------------------------------------
 
 interface PromoDetailModalProps {
@@ -264,166 +417,174 @@ function PromoDetailModal({ promo, onClose, onEdit, onToggleStatus }: PromoDetai
   const persentase = promo.batasKuota > 0 ? Math.round((promo.jumlahDigunakan / promo.batasKuota) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h2 style={{ color: '#000000' }}>Detail Promo</h2>
-            <p style={{ color: '#27b446', fontFamily: 'monospace' }}>ID {promo.id}</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
-            <X className="w-5 h-5" />
-          </button>
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h2 style={{ color: '#000000' }}>Detail Promo</h2>
+          <p style={{ color: '#27b446', fontFamily: 'monospace' }}>ID {promo.id}</p>
         </div>
+        <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
-        {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(90vh-160px)] px-6 py-4">
-          {/* Promo Info */}
-          <div className="mb-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="px-4 py-2 rounded-lg text-lg" style={{ backgroundColor: '#f3f4f6', fontFamily: 'monospace', color: '#1a0408' }}>
-                    {promo.kode}
-                  </span>
-                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full" style={{
-                    backgroundColor: getTipeColor(promo.tipe).bg,
-                    color: getTipeColor(promo.tipe).color
-                  }}>
-                    {getTipeIcon(promo.tipe, "w-4 h-4")}
-                    {promo.tipe}
-                  </span>
-                </div>
-                <h3 className="mb-2" style={{ color: '#000000' }}>{promo.nama}</h3>
-                <p style={{ color: '#1a0408', opacity: 0.8 }}>{promo.deskripsi || "Tidak ada deskripsi"}</p>
-              </div>
-
-              <div className="flex flex-col items-end gap-2">
+      {/* Content */}
+      <div className="overflow-y-auto max-h-[calc(90vh-160px)] px-6 py-4">
+        {/* Promo Info */}
+        <div className="mb-6">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-4 py-2 rounded-lg text-lg" style={{ backgroundColor: '#f3f4f6', fontFamily: 'monospace', color: '#1a0408' }}>
+                  {promo.kode}
+                </span>
+                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full" style={{
+                  backgroundColor: getTipeColor(promo.tipe).bg,
+                  color: getTipeColor(promo.tipe).color
+                }}>
+                  {getTipeIcon(promo.tipe, "w-4 h-4")}
+                  {promo.tipe}
+                </span>
                 {promo.isActive ? (
-                  <button
-                    onClick={() => onToggleStatus(promo)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors"
-                    style={{ borderColor: '#e40b18', color: '#e40b18' }}
-                  >
-                    <X className="w-4 h-4" />
-                    Nonaktifkan
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => onToggleStatus(promo)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90"
-                    style={{ backgroundColor: '#27b446' }}
-                  >
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm" style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)', color: '#27b446' }}>
                     <CheckCircle className="w-4 h-4" />
-                    Aktifkan
-                  </button>
+                    Aktif
+                  </span>
+                ) : (
+                  <span className="inline-flex px-3 py-1 rounded-full text-sm" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                    Nonaktif
+                  </span>
                 )}
-                <button
-                  onClick={() => onEdit(promo)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90"
-                  style={{ backgroundColor: '#27b446' }}
-                >
-                  <Edit className="w-4 h-4" />
-                  Edit Promo
-                </button>
               </div>
+              <h3 className="mb-2" style={{ color: '#000000' }}>{promo.nama}</h3>
+              <p style={{ color: '#1a0408', opacity: 0.8 }}>{promo.deskripsi || "Tidak ada deskripsi"}</p>
             </div>
+            <button
+              type="button"
+              onClick={() => onEdit(promo)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-green-50 flex-shrink-0"
+              style={{ borderColor: '#27b446', color: '#27b446' }}
+            >
+              <Pencil className="w-4 h-4" />
+              Edit Promo
+            </button>
           </div>
+        </div>
 
-          {/* Nilai Diskon */}
-          <div className="mb-6">
-            <h3 className="mb-3" style={{ color: '#000000' }}>Nilai Diskon</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
-                <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Potongan</p>
-                <p className="text-2xl" style={{ color: '#27b446' }}>{formatDiskon(promo)}</p>
-              </div>
-              {promo.maksimalDiskon != null && (
-                <div className="p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-                  <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Maksimal Diskon</p>
-                  <p className="text-xl" style={{ color: '#1a0408' }}>Rp {promo.maksimalDiskon.toLocaleString('id-ID')}</p>
-                </div>
-              )}
+        {/* Nilai Diskon */}
+        <div className="mb-6">
+          <h3 className="mb-3" style={{ color: '#000000' }}>Nilai Diskon</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+              <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Potongan</p>
+              <p className="text-2xl" style={{ color: '#27b446' }}>{formatDiskon(promo)}</p>
+            </div>
+            {promo.tipe === "Diskon %" && promo.maksimalDiskon != null && (
               <div className="p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-                <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Minimal Belanja</p>
-                <p className="text-xl" style={{ color: '#1a0408' }}>
-                  {promo.minimalBelanja === 0 ? 'Tanpa Minimal' : `Rp ${promo.minimalBelanja.toLocaleString('id-ID')}`}
-                </p>
+                <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Maksimal Diskon</p>
+                <p className="text-xl" style={{ color: '#1a0408' }}>Rp {promo.maksimalDiskon.toLocaleString('id-ID')}</p>
               </div>
-            </div>
-          </div>
-
-          {/* Periode Berlaku */}
-          <div className="mb-6">
-            <h3 className="mb-3" style={{ color: '#000000' }}>Periode Berlaku</h3>
-            <div className="flex items-center gap-3 p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-              <Calendar className="w-5 h-5" style={{ color: '#27b446' }} />
-              <div className="flex-1">
-                <p style={{ color: '#1a0408' }}>
-                  {fmtWib(promo.tanggalMulai, "dd MMMM yyyy")} - {fmtWib(promo.tanggalBerakhir, "dd MMMM yyyy")}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Kuota Penggunaan */}
-          <div className="mb-6">
-            <h3 className="mb-3" style={{ color: '#000000' }}>Kuota Penggunaan</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span style={{ color: '#1a0408' }}>Telah Digunakan</span>
-                <span style={{ color: '#27b446' }}>{promo.jumlahDigunakan} / {promo.batasKuota}</span>
-              </div>
-              <div className="w-full h-3 rounded-full overflow-hidden" style={{ backgroundColor: '#e5e7eb' }}>
-                <div
-                  className="h-full transition-all"
-                  style={{
-                    width: `${Math.min(100, persentase)}%`,
-                    backgroundColor: persentase >= 90 ? '#e40b18' : persentase >= 70 ? '#f59e0b' : '#27b446'
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span style={{ color: '#1a0408', opacity: 0.6 }}>Sisa Kuota: {Math.max(0, sisaKuota)}</span>
-                <span style={{ color: '#1a0408', opacity: 0.6 }}>{persentase}%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Syarat & Ketentuan */}
-          <div>
-            <h3 className="mb-3" style={{ color: '#000000' }}>Syarat & Ketentuan</h3>
+            )}
             <div className="p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-              {promo.syaratKetentuan.length > 0 ? (
-                <ul className="space-y-2">
-                  {promo.syaratKetentuan.map((syarat, idx) => (
-                    <li key={idx} className="flex items-start gap-2" style={{ color: '#1a0408' }}>
-                      <span style={{ color: '#27b446', marginTop: '4px' }}>•</span>
-                      <span>{syarat}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p style={{ color: '#1a0408', opacity: 0.6 }}>Tidak ada syarat & ketentuan</p>
-              )}
+              <p className="text-sm mb-1" style={{ color: '#1a0408', opacity: 0.6 }}>Minimal Belanja</p>
+              <p className="text-xl" style={{ color: '#1a0408' }}>
+                {promo.minimalBelanja === 0 ? 'Tanpa Minimal' : `Rp ${promo.minimalBelanja.toLocaleString('id-ID')}`}
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="w-full py-3 rounded-lg border transition-colors"
-            style={{ borderColor: '#e40b18', color: '#e40b18' }}
-          >
-            Tutup
-          </button>
+        {/* Periode Berlaku */}
+        <div className="mb-6">
+          <h3 className="mb-3" style={{ color: '#000000' }}>Periode Berlaku</h3>
+          <div className="flex items-center gap-3 p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+            <Calendar className="w-5 h-5" style={{ color: '#27b446' }} />
+            <div className="flex-1">
+              <p style={{ color: '#1a0408' }}>
+                {fmtWib(promo.tanggalMulai, "dd MMMM yyyy")} - {fmtWib(promo.tanggalBerakhir, "dd MMMM yyyy")}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Kuota Penggunaan */}
+        <div className="mb-6">
+          <h3 className="mb-3" style={{ color: '#000000' }}>Kuota Penggunaan</h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span style={{ color: '#1a0408' }}>Telah Digunakan</span>
+              <span style={{ color: '#27b446' }}>{promo.jumlahDigunakan} / {promo.batasKuota}</span>
+            </div>
+            <div className="w-full h-3 rounded-full overflow-hidden" style={{ backgroundColor: '#e5e7eb' }}>
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: `${Math.min(100, persentase)}%`,
+                  backgroundColor: persentase >= 90 ? '#e40b18' : persentase >= 70 ? '#f59e0b' : '#27b446'
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span style={{ color: '#1a0408', opacity: 0.6 }}>Sisa Kuota: {Math.max(0, sisaKuota)}</span>
+              <span style={{ color: '#1a0408', opacity: 0.6 }}>{persentase}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Syarat & Ketentuan */}
+        <div>
+          <h3 className="mb-3" style={{ color: '#000000' }}>Syarat & Ketentuan</h3>
+          <div className="p-4 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+            {promo.syaratKetentuan.length > 0 ? (
+              <ul className="space-y-2">
+                {promo.syaratKetentuan.map((syarat, idx) => (
+                  <li key={idx} className="flex items-start gap-2" style={{ color: '#1a0408' }}>
+                    <span style={{ color: '#27b446', marginTop: '4px' }}>•</span>
+                    <span>{syarat}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ color: '#1a0408', opacity: 0.6 }}>Tidak ada syarat & ketentuan</p>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex-1 py-3 rounded-lg border transition-colors"
+          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}
+        >
+          Tutup
+        </button>
+        {promo.isActive ? (
+          <button
+            type="button"
+            onClick={() => onToggleStatus(promo)}
+            className="flex-1 py-3 rounded-lg border-2 flex items-center justify-center gap-2 transition-colors hover:bg-red-50"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}
+          >
+            <X className="w-4 h-4" />
+            Nonaktifkan Promo
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onToggleStatus(promo)}
+            className="flex-1 py-3 rounded-lg text-white flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
+            style={{ backgroundColor: '#27b446' }}
+          >
+            <CheckCircle className="w-4 h-4" />
+            Aktifkan Promo
+          </button>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -450,7 +611,7 @@ export default function Promo() {
   const [viewing, setViewing] = useState<PromoDTO | null>(null);
   const [form, setForm] = useState<CreatePromoInput>(emptyForm);
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -562,38 +723,6 @@ export default function Promo() {
     }
   };
 
-  const importCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    try {
-      const rows = parseCsv(await file.text());
-      const header = rows[0].map((x) => x.trim().toLowerCase());
-      const value = (row: string[], ...names: string[]) => {
-        const index = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
-        return index >= 0 ? row[index] ?? "" : "";
-      };
-      const payload = rows.slice(1).map((row) => ({
-        ...emptyForm,
-        kode: value(row, "kode", "kode promo"),
-        nama: value(row, "nama", "nama promo"),
-        tipe: value(row, "tipe", "tipe promo") as PromoType,
-        deskripsi: value(row, "deskripsi"),
-        nilaiDiskon: Number(value(row, "nilai diskon", "nilai")),
-        minimalBelanja: Number(value(row, "minimal belanja")) || 0,
-        maksimalDiskon: value(row, "maksimal diskon") ? Number(value(row, "maksimal diskon")) : null,
-        tanggalMulai: value(row, "tanggal mulai"),
-        tanggalBerakhir: value(row, "tanggal berakhir"),
-        batasKuota: Number(value(row, "batas kuota")) || 1,
-      }));
-      const result = await bulkCreatePromos(payload);
-      alert(`Berhasil: ${result.success}, gagal: ${result.failures.length}`);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "CSV promo tidak valid.");
-    }
-  };
-
   const exportData = async () => {
     try {
       const result = await listPromos({ page: 1, pageSize: 100, search, tipe: tipe === "all" ? "" : tipe });
@@ -685,21 +814,20 @@ export default function Promo() {
                           </div>
                         </button>
                         <button
-                          onClick={() => { setShowAddPromoMenu(false); fileRef.current?.click(); }}
+                          onClick={() => { setShowAddPromoMenu(false); setShowBulkUpload(true); }}
                           className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
                           style={{ color: '#1a0408' }}
                         >
                           <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
                           <div>
                             <p style={{ color: '#000000' }}>Bulk Upload</p>
-                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
+                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p>
                           </div>
                         </button>
                       </div>
                     </>
                   )}
                 </div>
-                <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
               </div>
             )}
           </div>
@@ -945,7 +1073,7 @@ export default function Promo() {
             setForm({
               kode: promo.kode, nama: promo.nama, tipe: promo.tipe, deskripsi: promo.deskripsi,
               nilaiDiskon: promo.nilaiDiskon, minimalBelanja: promo.minimalBelanja,
-              maksimalDiskon: promo.maksimalDiskon, tanggalMulai: toDateTimeLocal(promo.tanggalMulai),
+              maksimalDiskon: promo.tipe === "Diskon %" ? promo.maksimalDiskon : null, tanggalMulai: toDateTimeLocal(promo.tanggalMulai),
               tanggalBerakhir: toDateTimeLocal(promo.tanggalBerakhir), batasKuota: promo.batasKuota,
               syaratKetentuan: promo.syaratKetentuan, isActive: promo.isActive,
             });
@@ -957,8 +1085,8 @@ export default function Promo() {
       {/* Create modal */}
       {showCreate && (
         <PromoForm
-          title="Tambah Promo"
-          subtitle="Isi detail promo yang akan digunakan di sistem"
+          title="Tambah Promo Baru"
+          subtitle="Isi data promo yang ingin ditambahkan"
           value={form}
           onChange={setForm}
           onSubmit={() => void saveCreate()}
@@ -971,7 +1099,7 @@ export default function Promo() {
       {editing && !viewing && (
         <PromoForm
           title="Edit Promo"
-          subtitle={`Perbarui detail promo ${editing.kode}`}
+          subtitle={`ID ${editing.id}`}
           value={form}
           onChange={setForm}
           onSubmit={() => void saveEdit()}
@@ -979,6 +1107,223 @@ export default function Promo() {
           busy={busy}
         />
       )}
+
+      {/* Bulk upload modal */}
+      {showBulkUpload && (
+        <BulkUploadPromoModal
+          onClose={() => setShowBulkUpload(false)}
+          onDone={() => void load()}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Upload Promo Modal — mengikuti alur bulk produk: info format file +
+// unduh sample file.
+// ---------------------------------------------------------------------------
+
+interface BulkUploadPromoModalProps {
+  onClose: () => void;
+  onDone: () => void | Promise<void>;
+}
+
+function BulkUploadPromoModal({ onClose, onDone }: BulkUploadPromoModalProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<BulkPromoResult | null>(null);
+
+  const handleDownloadSample = () => {
+    // Satu contoh per tipe promo. Maksimal Diskon hanya diisi untuk Diskon %.
+    const csvContent = [
+      "Kode,Nama,Tipe,Deskripsi,Nilai Diskon,Minimal Belanja,Maksimal Diskon,Tanggal Mulai,Tanggal Berakhir,Batas Kuota",
+      "DISC10,Diskon 10 Persen,Diskon %,Diskon 10% semua produk,10,100000,50000,2026-12-01,2026-12-31,100",
+      "POTONG5RB,Potongan 5 Ribu,Diskon Nominal,Diskon Rp5.000,5000,50000,,2026-12-01,2026-12-31,100",
+      "ONGKIR10RB,Potongan Ongkir 10 Ribu,Diskon Ongkir,Potongan ongkir Rp10.000,10000,100000,,2026-12-01,2026-12-31,50",
+    ].join("\n");
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sample-promo.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile || processing) return;
+    setProcessing(true);
+    setError("");
+    setResult(null);
+    try {
+      const rows = parseCsv(await selectedFile.text());
+      const header = rows[0].map((x) => x.trim().toLowerCase());
+      const value = (row: string[], ...names: string[]) => {
+        const index = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
+        return index >= 0 ? row[index] ?? "" : "";
+      };
+      const payload = rows.slice(1).map((row) => {
+        const tipe = value(row, "tipe", "tipe promo") as PromoType;
+        return {
+          ...emptyForm,
+          kode: value(row, "kode", "kode promo"),
+          nama: value(row, "nama", "nama promo"),
+          tipe,
+          deskripsi: value(row, "deskripsi"),
+          nilaiDiskon: Number(value(row, "nilai diskon", "nilai")),
+          minimalBelanja: Number(value(row, "minimal belanja")) || 0,
+          // Maksimal diskon hanya berlaku untuk tipe Diskon %
+          maksimalDiskon: tipe === "Diskon %" && value(row, "maksimal diskon") ? Number(value(row, "maksimal diskon")) : null,
+          tanggalMulai: value(row, "tanggal mulai"),
+          tanggalBerakhir: value(row, "tanggal berakhir"),
+          batasKuota: Number(value(row, "batas kuota")) || 1,
+        } as CreatePromoInput;
+      });
+      const res = await bulkCreatePromos(payload);
+      setResult(res);
+      await onDone();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal membaca file. Pastikan file CSV valid.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h2 style={{ color: '#000000' }}>Upload Promo Bulk</h2>
+          <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+            Upload file CSV (maksimal 10MB)
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          style={{ color: '#1a0408' }}
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="px-6 py-6">
+        {/* Upload Area */}
+        <div
+          className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-opacity-100"
+          style={{ borderColor: 'rgba(39,180,70,0.5)' }}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={(e) => { setSelectedFile(e.target.files?.[0] ?? null); setError(""); setResult(null); }}
+            className="hidden"
+          />
+          <Upload className="w-16 h-16 mx-auto mb-4" style={{ color: '#27b446', opacity: 0.6 }} />
+          {selectedFile ? (
+            <div>
+              <p style={{ color: '#27b446' }}>
+                ✓ {selectedFile.name}
+              </p>
+              <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+                {(selectedFile.size / 1024).toFixed(2)} KB
+              </p>
+            </div>
+          ) : (
+            <div>
+              <p style={{ color: '#000000' }}>
+                Klik untuk memilih file atau drag & drop
+              </p>
+              <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+                CSV, maksimal 10MB
+              </p>
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="mt-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+            <p style={{ color: '#e40b18' }}>⚠ {error}</p>
+          </div>
+        )}
+
+        {result && (
+          <div className="mt-4 p-4 rounded-lg" style={{ backgroundColor: 'rgba(39,180,70,0.08)', border: '1px solid rgba(39,180,70,0.25)' }}>
+            <p style={{ color: '#166534', fontWeight: 600 }}>
+              Berhasil: {result.success} promo
+            </p>
+            {result.failures.length > 0 && (
+              <div className="mt-2 max-h-40 overflow-y-auto">
+                {result.failures.map((f, i) => (
+                  <p key={i} className="text-sm mt-1" style={{ color: '#991b1b' }}>
+                    Baris {f.row}{f.kode ? ` (${f.kode})` : ""}: {f.message}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Info Template */}
+        <div className="mt-6 p-4 rounded-lg border border-gray-200" style={{ backgroundColor: '#f9fafb' }}>
+          <div className="flex items-center justify-between mb-2">
+            <p style={{ color: '#000000' }}>Format File:</p>
+            <button
+              onClick={handleDownloadSample}
+              className="text-sm px-3 py-1 rounded transition-colors"
+              style={{
+                color: '#27b446',
+                textDecoration: 'underline'
+              }}
+            >
+              Unduh Sample File
+            </button>
+          </div>
+          <p className="text-sm mb-2" style={{ color: '#1a0408', opacity: 0.7 }}>
+            File harus memiliki kolom berikut (sesuai urutan):
+          </p>
+          <div className="text-sm font-mono p-3 rounded border border-gray-300 bg-white" style={{ color: '#1a0408' }}>
+            Kode, Nama, Tipe, Deskripsi, Nilai Diskon, Minimal Belanja, Maksimal Diskon, Tanggal Mulai, Tanggal Berakhir, Batas Kuota
+          </div>
+          <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.6 }}>
+            Tipe promo: &ldquo;Diskon Ongkir&rdquo;, &ldquo;Diskon Nominal&rdquo;, atau &ldquo;Diskon %&rdquo;. Nilai Diskon dalam persen (%) untuk Diskon %, dan rupiah untuk Diskon Nominal / Diskon Ongkir.
+          </p>
+          <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+            Maksimal Diskon hanya untuk tipe Diskon % (kosongkan untuk tipe lain). Tanggal format YYYY-MM-DD, contoh 2026-12-01.
+          </p>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+        <button
+          onClick={onClose}
+          className="flex-1 py-3 rounded-lg border transition-colors"
+          style={{
+            borderColor: '#e40b18',
+            color: '#e40b18'
+          }}
+        >
+          Batal
+        </button>
+        <button
+          onClick={() => void handleUpload()}
+          disabled={!selectedFile || processing}
+          className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ backgroundColor: '#27b446' }}
+        >
+          {processing ? "Memproses..." : "Upload & Proses"}
+        </button>
+      </div>
+    </Modal>
   );
 }

@@ -8,12 +8,14 @@ import {
 import { listSupplier } from "@/lib/supplier-api";
 import { listProduk } from "@/lib/product-api";
 import { parseCsv } from "./BulkUploadReference";
+import Modal from "./Modal";
+import DatePicker from "./DatePicker";
 import type { PembelianDTO } from "@/lib/pembelian-types";
 import type { SupplierDTO } from "@/lib/supplier-types";
 import type { ProdukDTO } from "@/lib/product-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
-  X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2,
+  X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2, Eye,
   Download, Upload, Building2, Calendar, TrendingUp
 } from "lucide-react";
 import { format } from "date-fns";
@@ -59,6 +61,17 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
+  // Tutup dropdown hasil pencarian saat klik di luar.
+  useEffect(() => {
+    if (!showResults) return;
+    const onDown = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) setShowResults(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showResults]);
 
   useEffect(() => {
     if (!searchQ.trim()) { setResults([]); return; }
@@ -123,9 +136,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
   const inputStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as any;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[94vh] overflow-hidden shadow-2xl flex flex-col">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[94vh] overflow-hidden shadow-2xl flex flex-col">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 style={{ color: '#000000' }}>Buat Pembelian Baru</h2>
@@ -142,7 +153,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
             <div className="grid grid-cols-3 gap-4">
               <label>
                 <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal *</span>
-                <input type="date" value={tanggal} onChange={(e) => setTanggal(e.target.value)}
+                <DatePicker value={tanggal} onChange={setTanggal} placeholder="Pilih tanggal"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
               </label>
               <label className="col-span-1">
@@ -171,7 +182,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
             {/* Cari produk */}
             <div>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Cari Produk (dari produk master)</span>
-              <div className="relative">
+              <div className="relative" ref={searchBoxRef}>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
                 <input value={searchQ} onChange={(e) => { setSearchQ(e.target.value); setShowResults(true); }} onFocus={() => setShowResults(true)}
                   placeholder="Ketik SKU atau nama produk..."
@@ -303,8 +314,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
             {busy ? "Menyimpan..." : "Simpan Pembelian"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -314,9 +324,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 
 function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose: () => void; onDelete: (id: number) => void }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 style={{ color: '#000000' }}>Detail Pembelian</h2>
@@ -411,8 +419,7 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
           <button onClick={onClose} className="px-5 py-2 rounded-lg border transition-colors"
             style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Tutup</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -438,6 +445,17 @@ export default function Pembelian() {
   const [viewing, setViewing] = useState<PembelianDTO | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  // Tutup dropdown "Tambah Data" saat klik di luar.
+  useEffect(() => {
+    if (!showAddMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setShowAddMenu(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showAddMenu]);
 
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search); setPagination((p) => ({ ...p, page: 1 })); }, 300);
@@ -579,7 +597,7 @@ export default function Pembelian() {
                 <Download className="w-5 h-5" />
                 Export Data
               </button>
-              <div className="relative">
+              <div className="relative" ref={addMenuRef}>
                 <button onClick={() => setShowAddMenu(!showAddMenu)}
                   className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
                   style={{ backgroundColor: '#27b446' }}>
@@ -588,9 +606,7 @@ export default function Pembelian() {
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 {showAddMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
                       <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
                         className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors" style={{ color: '#1a0408' }}>
                         <Plus className="w-5 h-5" style={{ color: '#27b446' }} />
@@ -602,7 +618,6 @@ export default function Pembelian() {
                         <div><p style={{ color: '#000000' }}>Bulk Upload</p><p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p></div>
                       </button>
                     </div>
-                  </>
                 )}
               </div>
               <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
@@ -635,13 +650,13 @@ export default function Pembelian() {
             <div className="mt-4 flex items-center gap-4 p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Dari Tanggal</label>
-                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => { const v = e.target.value; setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setPagination((p) => ({ ...p, page: 1 })); }}
+                <DatePicker value={dateFrom} max={dateTo || undefined} onChange={(v) => { setDateFrom(v); if (dateTo && v && v > dateTo) setDateTo(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Sampai Tanggal</label>
-                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => { const v = e.target.value; setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setPagination((p) => ({ ...p, page: 1 })); }}
+                <DatePicker value={dateTo} min={dateFrom || undefined} onChange={(v) => { setDateTo(v); if (dateFrom && v && v < dateFrom) setDateFrom(""); setPagination((p) => ({ ...p, page: 1 })); }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
               </div>
@@ -706,8 +721,10 @@ export default function Pembelian() {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <button onClick={() => setViewing(p)} className="px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
-                              style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Detail</button>
+                            <button onClick={() => setViewing(p)} className="p-2 rounded-lg transition-colors hover:bg-gray-100"
+                              style={{ color: '#1a0408' }} title="Detail Pembelian">
+                              <Eye className="w-4 h-4" />
+                            </button>
                           </td>
                         </tr>
                       ))}

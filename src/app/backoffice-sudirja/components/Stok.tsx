@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
 import { ExportButton, AddButton } from "./ActionButtons";
 import { ApiClientError } from "@/lib/api-client";
 import {
@@ -355,14 +356,11 @@ export default function Stok() {
                             <div className="flex items-center justify-center gap-2">
                               <button
                                 onClick={() => setEditingStock(product)}
-                                className="px-3 py-2 rounded-lg border transition-all hover:opacity-90 flex items-center gap-2"
-                                style={{
-                                  borderColor: '#27b446',
-                                  color: '#27b446'
-                                }}
+                                className="p-2 rounded-lg transition-colors hover:bg-gray-100"
+                                style={{ color: '#27b446' }}
+                                title="Edit Stok"
                               >
                                 <Edit className="w-4 h-4" />
-                                Edit Stok
                               </button>
                             </div>
                           </td>
@@ -597,18 +595,7 @@ function EditStockModal({ product, onClose, onSave, onHistory }: EditStockModalP
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50 p-4"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl mx-4">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
           <div>
@@ -835,8 +822,7 @@ function EditStockModal({ product, onClose, onSave, onHistory }: EditStockModalP
             {saving ? "Menyimpan..." : "Simpan Perubahan"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -956,18 +942,7 @@ function BulkUploadStockModal({ onClose, onDone }: BulkUploadStockModalProps) {
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -1109,8 +1084,7 @@ function BulkUploadStockModal({ onClose, onDone }: BulkUploadStockModalProps) {
             {processing ? "Memproses..." : "Upload & Proses"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

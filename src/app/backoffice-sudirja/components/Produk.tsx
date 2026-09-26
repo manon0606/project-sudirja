@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
 import { ApiClientError } from "@/lib/api-client";
 import {
   bulkUpsertProduk,
@@ -231,6 +232,17 @@ export default function Produk() {
   const [editingProduct, setEditingProduct] = useState<ProdukDTO | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<ProdukDTO | null>(null);
   const [printingProduct, setPrintingProduct] = useState<ProdukDTO | null>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  // Tutup dropdown "Tambah Produk" saat klik di luar.
+  useEffect(() => {
+    if (!showAddProductMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setShowAddProductMenu(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showAddProductMenu]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -437,7 +449,7 @@ export default function Produk() {
               </button>
 
               {/* Tambah Produk Button with Dropdown */}
-              <div className="relative">
+              <div className="relative" ref={addMenuRef}>
                 <button
                   onClick={() => setShowAddProductMenu(!showAddProductMenu)}
                   className="px-6 py-3 rounded-lg text-white flex items-center gap-2 transition-opacity hover:opacity-90"
@@ -449,12 +461,7 @@ export default function Produk() {
                 </button>
 
                 {showAddProductMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setShowAddProductMenu(false)}
-                    />
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
                       <button
                         onClick={() => {
                           setShowAddProductMenu(false);
@@ -484,7 +491,6 @@ export default function Produk() {
                         </div>
                       </button>
                     </div>
-                  </>
                 )}
               </div>
             </div>
@@ -963,14 +969,7 @@ function ProductDetailModal({ product, onClose, onStatusChange }: ProductDetailM
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -1159,8 +1158,7 @@ function ProductDetailModal({ product, onClose, onStatusChange }: ProductDetailM
             Tutup
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1268,14 +1266,7 @@ function AddProductManualModal({ onClose, onAdd, satuanList, merkList, kategoriL
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -1529,8 +1520,7 @@ function AddProductManualModal({ onClose, onAdd, satuanList, merkList, kategoriL
             {saving ? "Menyimpan..." : "Simpan Produk"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1637,14 +1627,7 @@ function EditProductModal({ product, onClose, onSave, satuanList, merkList, kate
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -1898,8 +1881,7 @@ function EditProductModal({ product, onClose, onSave, satuanList, merkList, kate
             {saving ? "Menyimpan..." : "Simpan Perubahan"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1929,14 +1911,7 @@ function DeleteConfirmModal({ product, onClose, onConfirm }: DeleteConfirmModalP
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
@@ -1988,8 +1963,7 @@ function DeleteConfirmModal({ product, onClose, onConfirm }: DeleteConfirmModalP
             {deleting ? "Menghapus..." : "Ya, Hapus"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -2068,14 +2042,7 @@ function BarcodePrintModal({ product, onClose }: { product: ProdukDTO; onClose: 
   const satuanNama = (kode: string) => product.satuan.find((s) => s.satuanKode === kode)?.satuanNama ?? kode;
 
   return (
-    <div
-      className="fixed inset-0 z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -2148,8 +2115,7 @@ function BarcodePrintModal({ product, onClose }: { product: ProdukDTO; onClose: 
             Cetak
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -2388,14 +2354,7 @@ function BulkUploadModal({ onClose, onDone, satuanList, merkList, kategoriList }
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -2527,7 +2486,6 @@ function BulkUploadModal({ onClose, onDone, satuanList, merkList, kategoriList }
             {processing ? "Memproses..." : "Upload File"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

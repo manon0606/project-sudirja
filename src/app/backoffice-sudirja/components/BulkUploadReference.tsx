@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { ApiClientError } from "@/lib/api-client";
 import { createMerk, createSatuan, createKategori } from "@/lib/product-api";
 import { Upload, X, FileSpreadsheet } from "lucide-react";
+import Modal from "./Modal";
 
 // ---------------------------------------------------------------------------
 // Bulk upload bersama untuk satuan / merk / kategori — konsisten dengan bulk
@@ -248,18 +249,7 @@ export default function BulkUploadReferenceModal({ kind, onClose, onDone }: Bulk
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -400,7 +390,6 @@ export default function BulkUploadReferenceModal({ kind, onClose, onDone }: Bulk
             {processing ? "Memproses..." : "Upload & Proses"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import { ApiClientError } from "@/lib/api-client";
 import { createSatuan, deleteSatuan, listSatuan, updateSatuan } from "@/lib/product-api";
@@ -9,6 +9,7 @@ import {
   X, ChevronLeft, ChevronRight, ChevronDown, Plus, Edit, Trash2, Package, Upload, Download
 } from "lucide-react";
 import BulkUploadReferenceModal, { downloadReferenceCsv } from "./BulkUploadReference";
+import Modal from "./Modal";
 
 type SortField = "kode" | "nama" | "jumlah_unit";
 type SortDirection = "asc" | "desc" | null;
@@ -36,6 +37,19 @@ export default function KelolaSatuan() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Tutup dropdown "Tambah" saat klik di luar (document mousedown + ref).
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showAddMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showAddMenu]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,7 +152,7 @@ export default function KelolaSatuan() {
               </button>
 
               {/* Tambah Satuan with Dropdown */}
-              <div className="relative">
+              <div className="relative" ref={addMenuRef}>
                 <button
                   onClick={() => setShowAddMenu(!showAddMenu)}
                   className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
@@ -150,12 +164,7 @@ export default function KelolaSatuan() {
                 </button>
 
                 {showAddMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setShowAddMenu(false)}
-                    />
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
                       <button
                         onClick={() => {
                           setShowAddMenu(false);
@@ -184,8 +193,7 @@ export default function KelolaSatuan() {
                           <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p>
                         </div>
                       </button>
-                    </div>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
@@ -495,14 +503,7 @@ function AddSatuanModal({ onClose, onAdd }: AddSatuanModalProps) {
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 style={{ color: '#000000' }}>Tambah Satuan</h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
@@ -572,8 +573,7 @@ function AddSatuanModal({ onClose, onAdd }: AddSatuanModalProps) {
             {saving ? "Menyimpan..." : "Simpan"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -617,14 +617,7 @@ function EditSatuanModal({ satuan, onClose, onUpdate }: EditSatuanModalProps) {
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 style={{ color: '#000000' }}>Edit Satuan</h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
@@ -702,8 +695,7 @@ function EditSatuanModal({ satuan, onClose, onUpdate }: EditSatuanModalProps) {
             {saving ? "Menyimpan..." : "Simpan"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -735,14 +727,7 @@ function DeleteConfirmModal({ title, message, onClose, onConfirm, target }: Dele
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 style={{ color: '#000000' }}>{title}</h2>
         </div>
@@ -773,7 +758,6 @@ function DeleteConfirmModal({ title, message, onClose, onConfirm, target }: Dele
             {deleting ? "Menghapus..." : "Hapus"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

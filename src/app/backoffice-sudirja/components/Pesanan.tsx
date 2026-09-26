@@ -1,6 +1,8 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
+import Modal from "./Modal";
+import DatePicker from "./DatePicker";
 import { ApiClientError } from "@/lib/api-client";
 import {
   listPesanan,
@@ -45,6 +47,26 @@ function getStatusBadge(status: string) {
 
 type SortField = "no_pesanan" | "created_at" | "kasir_nama" | "total" | "metode_bayar";
 type SortDirection = "asc" | "desc" | null;
+
+// Tutup panel/popover saat klik di luar (di luar panel & pemicunya).
+// Kalender DatePicker di-portal ke <body> dan menghentikan propagasi
+// mousedown-nya sendiri, jadi interaksi dengannya tidak ikut menutup panel.
+function useOutsideClickClose(
+  ref: { current: HTMLElement | null },
+  onOutside: () => void,
+  extraRef?: { current: HTMLElement | null },
+) {
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (t && typeof t.closest === "function" && t.closest('body > [style*="z-index: 99999"]')) return;
+      if (t && (ref.current?.contains(t) || extraRef?.current?.contains(t))) return;
+      onOutside();
+    };
+    document.addEventListener("mousedown", handleDown);
+    return () => document.removeEventListener("mousedown", handleDown);
+  }, [ref, extraRef, onOutside]);
+}
 
 export default function Pesanan() {
 
@@ -136,6 +158,11 @@ export default function Pesanan() {
   };
 
   const hasActiveFilters = searchId || dateFrom || dateTo;
+
+  // Panel filter tanggal: tertutup saat klik di luar.
+  const dateFilterRef = useRef<HTMLDivElement>(null);
+  const dateFilterToggleRef = useRef<HTMLButtonElement>(null);
+  useOutsideClickClose(dateFilterRef, () => setShowDateFilter(false), dateFilterToggleRef);
 
   const totalPages = pagination.totalPages;
   const startIndex = (pagination.page - 1) * pagination.pageSize;
@@ -256,6 +283,7 @@ export default function Pesanan() {
 
             {/* Date Filter Toggle */}
             <button
+              ref={dateFilterToggleRef}
               onClick={() => setShowDateFilter(!showDateFilter)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors ${
                 showDateFilter ? 'text-white' : ''
@@ -288,23 +316,21 @@ export default function Pesanan() {
 
           {/* Date Range Filter */}
           {showDateFilter && (
-            <div className="mt-4 flex items-center gap-4 p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+            <div ref={dateFilterRef} className="mt-4 flex items-center gap-4 p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
               <div className="flex-1">
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>
                   Dari Tanggal
                 </label>
-                <input
-                  type="date"
+                <DatePicker
                   value={dateFrom}
                   max={dateTo || undefined}
-                  onChange={(e) => {
-                    const v = e.target.value;
+                  onChange={(v) => {
                     setDateFrom(v);
                     if (dateTo && v && v > dateTo) setDateTo("");
                     setCurrentPage(1);
                   }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                  style={{ 
+                  style={{
                     color: '#1a0408',
                     '--tw-ring-color': '#27b446'
                   } as any}
@@ -314,18 +340,16 @@ export default function Pesanan() {
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>
                   Sampai Tanggal
                 </label>
-                <input
-                  type="date"
+                <DatePicker
                   value={dateTo}
                   min={dateFrom || undefined}
-                  onChange={(e) => {
-                    const v = e.target.value;
+                  onChange={(v) => {
                     setDateTo(v);
                     if (dateFrom && v && v < dateFrom) setDateFrom("");
                     setCurrentPage(1);
                   }}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                  style={{ 
+                  style={{
                     color: '#1a0408',
                     '--tw-ring-color': '#27b446'
                   } as any}
@@ -603,14 +627,7 @@ function OrderDetailModal({ order, onClose, onRetur }: OrderDetailModalProps) {
   const grandTotal = order.total;
 
   return (
-    <div 
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ 
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -790,8 +807,7 @@ function OrderDetailModal({ order, onClose, onRetur }: OrderDetailModalProps) {
             Cetak Invoice
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -858,11 +874,7 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ backdropFilter: "blur(6px)", backgroundColor: "rgba(0,0,0,0.10)" }}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl w-full mx-4 overflow-hidden flex flex-col" style={{ maxWidth: "600px", maxHeight: "90vh" }}>
+    <Modal onClose={onClose} className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] mx-4 max-h-[90vh] overflow-hidden flex flex-col">
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
@@ -1218,8 +1230,7 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
             <p className="text-sm" style={{ color: '#e40b18' }}>⚠ {submitError}</p>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1262,6 +1273,14 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
   const [pelangganResults, setPelangganResults] = useState<PelangganDTO[]>([]);
   const [showPelangganResults, setShowPelangganResults] = useState(false);
   const [pelangganSearching, setPelangganSearching] = useState(false);
+
+  // Dropdown/popover di form ini: tertutup saat klik di luar.
+  const paymentDropdownRef = useRef<HTMLDivElement>(null);
+  useOutsideClickClose(paymentDropdownRef, () => setShowPaymentDropdown(false));
+  const searchResultsRef = useRef<HTMLDivElement>(null);
+  useOutsideClickClose(searchResultsRef, () => setShowSearchResults(false));
+  const pelangganResultsRef = useRef<HTMLDivElement>(null);
+  useOutsideClickClose(pelangganResultsRef, () => setShowPelangganResults(false));
 
   // Cari pelanggan dari master (utk tipe commerce) — debounce.
   useEffect(() => {
@@ -1458,14 +1477,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
   const kreditPeriods = ["Bayar Bulan Depan", "Cicil 3 Bulan", "Cicil 6 Bulan", "Cicil 12 Bulan"];
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(4px)'
-      }}
-    >
-      <div className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 style={{ color: '#000000' }}>Buat Pesanan Manual</h2>
@@ -1554,7 +1566,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
                     </button>
                   </div>
                 ) : (
-                  <div className="relative">
+                  <div ref={pelangganResultsRef} className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
                     <input
                       type="text"
@@ -1611,7 +1623,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
               <label className="block mb-2" style={{ color: '#000000' }}>
                 Cari Produk
               </label>
-              <div className="relative">
+              <div ref={searchResultsRef} className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
                 <input
                   type="text"
@@ -1775,7 +1787,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
               <label className="block mb-2" style={{ color: '#000000' }}>
                 Metode Pembayaran
               </label>
-              <div className="relative">
+              <div ref={paymentDropdownRef} className="relative">
                 <button
                   onClick={() => setShowPaymentDropdown(!showPaymentDropdown)}
                   className="w-full px-4 py-3 rounded-lg border border-gray-300 flex items-center justify-between focus:outline-none focus:ring-2"
@@ -1897,7 +1909,6 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
             <p className="text-sm" style={{ color: '#e40b18' }}>⚠ {submitError}</p>
           </div>
         )}
-      </div>
 
       {/* Receipt popup — rendered above CreateOrderModal */}
       <ReceiptModal
@@ -1911,6 +1922,6 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
         paymentMethod={paymentMethod === "Kredit" && kreditPeriod ? `Kredit — ${kreditPeriod}` : paymentMethod}
         kreditPeriod={kreditPeriod || undefined}
       />
-    </div>
+    </Modal>
   );
 }
