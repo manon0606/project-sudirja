@@ -635,6 +635,31 @@ export async function createReturTx(
          VALUES (?, ?, ?, ?, ?, ?)`,
         [result.insertId, it.pesananItemId ?? null, it.namaProduk, it.qty, it.harga, it.harga * it.qty],
       );
+
+      // Kembalikan efek penjualan atas stok — kebalikan dari yang dicatat saat
+      // pesanan dibuat: stok satuan +qty (stok_history 'in') dan hitungan
+      // qty_terjual konsinyasi aktif dibatalkan.
+      const pi = await resolvePesananItemRetur(conn, pesananId, it.pesananItemId ?? null, it.namaProduk);
+      if (pi) {
+        // Tujuan pengembalian stok: satuan asal; fallback legacy (pesanan_item
+        // tanpa satuan) = satuan pertama urutan FIFO (kebalikan kurangiStokProdukOtomatis).
+        let stokSatuanId = pi.produk_satuan_id;
+        if (stokSatuanId == null && pi.produk_id != null) {
+          const [psRows] = await conn.query<RowDataPacket[]>(
+            `SELECT ps.id FROM produk_satuan ps WHERE ps.produk_id = ? ORDER BY ps.harga ASC, ps.id ASC LIMIT 1`,
+            [pi.produk_id],
+          );
+          stokSatuanId = (psRows as Array<{ id: number }>)[0]?.id ?? null;
+        }
+        if (stokSatuanId != null) {
+          await kembalikanStokRetur(conn, stokSatuanId, it.qty, `${noRetur} — retur ${it.namaProduk}`);
+        }
+        // Pencatatan terjual konsinyasi memakai produk_satuan_id pesanan_item
+        // apa adanya (bisa null) — pembatalannya harus memakai nilai yang sama.
+        if (pi.produk_id != null) {
+          await batalkanTerjualKonsinyasi(conn, pi.produk_id, pi.produk_satuan_id, it.qty);
+        }
+      }
     }
 
     // Status pesanan → "Dikembalikan" (perilaku UI: retur menandai pesanan retur).
@@ -660,6 +685,99 @@ export async function createReturTx(
       (itemRows as RowDataPacket[]).map((r) => toReturItemDTO(r as never)),
     );
   });
+}
+
+/** Cari pesanan_item terkait item retur (untuk resolusi stok & konsinyasi). */
+async function resolvePesananItemRetur(
+  conn: PoolConnection,
+  pesananId: number,
+  pesananItemId: number | null,
+  namaProduk: string,
+): Promise<{ produk_id: number | null; produk_satuan_id: number | null } | null> {
+  if (pesananItemId != null) {
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT produk_id, produk_satuan_id FROM pesanan_item WHERE id = ? AND pesanan_id = ? LIMIT 1`,
+      [pesananItemId, pesananId],
+    );
+    const r = rows[0] as { produk_id: number | null; produk_satuan_id: number | null } | undefined;
+    if (r) return r;
+  }
+  // Fallback: item retur tanpa pesananItemId — cocokkan nama produk pada pesanan
+  // yang sama (bisa ambigu bila nama sama dengan satuan berbeda; jalur UI selalu
+  // mengirim pesananItemId sehingga fallback ini jarang dipakai).
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT produk_id, produk_satuan_id FROM pesanan_item
+     WHERE pesanan_id = ? AND nama_produk = ? LIMIT 1`,
+    [pesananId, namaProduk],
+  );
+  const r = rows[0] as { produk_id: number | null; produk_satuan_id: number | null } | undefined;
+  return r ?? null;
+}
+
+/** Kembalikan qty stok akibat retur (kebalikan mutasiStokPesanan) + catat history. */
+async function kembalikanStokRetur(
+  conn: PoolConnection,
+  produkSatuanId: number,
+  qty: number,
+  catatan: string,
+): Promise<void> {
+  if (qty <= 0) return;
+  const [stokRows] = await conn.query<RowDataPacket[]>(
+    `SELECT id, qty FROM stok WHERE produk_satuan_id = ? LIMIT 1`,
+    [produkSatuanId],
+  );
+  let stok = stokRows[0] as { id: number; qty: number } | undefined;
+  if (!stok) {
+    const [ins] = await conn.query<ResultSetHeader>(
+      `INSERT INTO stok (produk_satuan_id, qty, buffer_stok) VALUES (?, 0, 0)`,
+      [produkSatuanId],
+    );
+    stok = { id: ins.insertId, qty: 0 };
+  }
+  const qtyBaru = stok.qty + qty;
+  await conn.query(`UPDATE stok SET qty = ? WHERE id = ?`, [qtyBaru, stok.id]);
+  await conn.query(
+    `INSERT INTO stok_history (stok_id, tipe, qty_delta, qty_sebelum, qty_sesudah, catatan)
+     VALUES (?, 'in', ?, ?, ?, ?)`,
+    [stok.id, qty, stok.qty, qtyBaru, catatan.slice(0, 255)],
+  );
+}
+
+/**
+ * Batalkan hitungan qty terjual konsinyasi akibat retur (kebalikan
+ * catatTerjualKonsinyasi). Hanya menyentuh konsinyasi AKTIF — yang sudah
+ * 'selesai' dianggap sudah diselesaikan dengan supplier dan tidak ditarik
+ * kembali. Urutan pengurangan mengikuti pencatatan (first-in), sehingga agregat
+ * per produk+satuan tetap konsisten walau atribusi per konsinyasi tidak eksak.
+ */
+async function batalkanTerjualKonsinyasi(
+  conn: PoolConnection,
+  produkId: number,
+  produkSatuanId: number | null,
+  qty: number,
+): Promise<void> {
+  if (qty <= 0) return;
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT ki.id, ki.qty_terjual
+     FROM konsinyasi_item ki
+     JOIN konsinyasi k ON k.id = ki.konsinyasi_id AND k.status = 'aktif'
+     WHERE ki.produk_id = ?
+       AND (ki.produk_satuan_id = ? OR (? IS NULL AND ki.produk_satuan_id IS NULL))
+     ORDER BY k.tanggal ASC, k.id ASC`,
+    [produkId, produkSatuanId, produkSatuanId],
+  );
+  let sisa = qty;
+  for (const r of rows as Array<{ id: number; qty_terjual: number }>) {
+    if (sisa <= 0) break;
+    const kembalikan = Math.min(sisa, r.qty_terjual);
+    if (kembalikan > 0) {
+      await conn.query(`UPDATE konsinyasi_item SET qty_terjual = qty_terjual - ? WHERE id = ?`, [
+        kembalikan,
+        r.id,
+      ]);
+      sisa -= kembalikan;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -111,6 +111,10 @@ const KIND_LABEL: Record<ReferenceKind, string> = {
   kategori: "Kategori",
 };
 
+/**
+ * Template CSV per jenis referensi. Merk & kategori WAJIB berbeda:
+ * merk = nama merek/brand, kategori = kelompok/jenis produk.
+ */
 function sampleCsv(kind: ReferenceKind): string {
   if (kind === "satuan") {
     return [
@@ -120,10 +124,20 @@ function sampleCsv(kind: ReferenceKind): string {
       "Lusin,12",
     ].join("\n");
   }
+  if (kind === "merk") {
+    return [
+      "Nama",
+      "Indomie",
+      "Ultra",
+      "ABC",
+    ].join("\n");
+  }
+  // kategori
   return [
     "Nama",
-    "Indomie",
-    "Ultra",
+    "Makanan & Minuman",
+    "Elektronik",
+    "Perawatan Tubuh",
   ].join("\n");
 }
 

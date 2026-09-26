@@ -45,6 +45,7 @@ export async function getProdukSatuanIdsByProdukId(
 // ---------------------------------------------------------------------------
 
 export interface StokRow {
+  produk_id: number;
   sku: string;
   nama: string;
   kategori_kode: string;
@@ -103,7 +104,7 @@ export function toStokDTO(rows: StokRow[]): StokDTO | null {
 // ---------------------------------------------------------------------------
 
 const STOK_SELECT = `
-  SELECT p.sku, p.nama, p.status, p.gambar_url,
+  SELECT p.id AS produk_id, p.sku, p.nama, p.status, p.gambar_url,
          k.kode AS kategori_kode, k.nama AS kategori_nama,
          m.kode AS merk_kode, m.nama AS merk_nama,
          s.kode AS satuan_kode, s.nama AS satuan_nama, s.jumlah_unit,
@@ -120,8 +121,9 @@ const STOK_SORT_COLUMNS: Record<string, string> = {
   sku: "p.sku",
   nama: "p.nama",
   kategori: "k.nama",
-  totalQty: "st.qty",
-  totalBuffer: "st.buffer_stok",
+  // Total per produk = agregat SEMUA satuan (dihitung via SUM di query halaman).
+  totalQty: "total_qty",
+  totalBuffer: "total_buffer",
 };
 
 export function parseStokListParams(params: URLSearchParams) {
@@ -185,48 +187,61 @@ export async function listStok(
   const total = Number(countResult.rows[0]?.total ?? 0);
 
   // Page of distinct product ids (deterministic ordering).
+  // totalQty/totalBuffer diurutkan berdasarkan AGREGAT seluruh satuan produk
+  // (bukan satu baris satuan), sehingga sorting kolom total benar.
   const sortColumn = STOK_SORT_COLUMNS[opts.sortBy] ?? "p.nama";
   const dir = opts.sortOrder === "asc" ? "ASC" : "DESC";
   const offset = (opts.page - 1) * opts.pageSize;
   const pageResult = await query<RowDataPacket[]>(
-    `SELECT p.id
+    `SELECT p.id,
+            COALESCE(SUM(st.qty), 0) AS total_qty,
+            COALESCE(SUM(st.buffer_stok), 0) AS total_buffer,
+            MIN(p.nama) AS nama, MIN(p.sku) AS sku,
+            MIN(k.nama) AS kategori
      FROM stok st
      JOIN produk_satuan ps ON ps.id = st.produk_satuan_id
      JOIN produk p ON p.id = ps.produk_id
      JOIN kategori k ON k.id = p.kategori_id
      JOIN merk m ON m.id = p.merk_id
      ${whereSql}
-     GROUP BY p.id, ${sortColumn}
+     GROUP BY p.id
      ORDER BY ${sortColumn} ${dir}, p.id ${dir}
      LIMIT ? OFFSET ?`,
     [...params, opts.pageSize, offset],
   );
-  const productIds = (pageResult.rows as Array<{ id: number }>).map((r) => r.id);
-  if (productIds.length === 0) {
+  const orderedIds = (pageResult.rows as Array<{ id: number }>).map((r) => Number(r.id));
+  if (orderedIds.length === 0) {
     return { items: [], pagination: buildMeta(total, opts.page, opts.pageSize) };
   }
 
   const { rows } = await query<StokRow[]>(
     `${STOK_SELECT}
-     WHERE p.id IN (${productIds.map(() => "?").join(",")})
+     WHERE p.id IN (${orderedIds.map(() => "?").join(",")})
      ORDER BY p.id ASC, st.id ASC`,
-    productIds,
+    orderedIds,
   );
 
-  // Group rows by product id (rows carry no product id — group by sku).
-  const groups = new Map<string, StokRow[]>();
+  // Group baris per produk (produk_id) → satu StokDTO per produk.
+  const groups = new Map<number, StokRow[]>();
   for (const row of rows) {
-    const list = groups.get(row.sku) ?? [];
+    const key = Number(row.produk_id);
+    const list = groups.get(key) ?? [];
     list.push(row);
-    groups.set(row.sku, list);
-  }
-  let items = [...groups.values()].map(toStokDTO).filter((d): d is StokDTO => d !== null);
-
-  if (opts.lowOnly) {
-    items = items.filter((d) => d.isLow);
+    groups.set(key, list);
   }
 
-  return { items, pagination: buildMeta(total, opts.page, opts.pageSize) };
+  // Kembalikan SESUAI urutan hasil sorting dari query halaman — query detail di
+  // atas selalu ORDER BY p.id, jadi urutan asli harus dipulihkan di sini.
+  const items = orderedIds
+    .map((id) => {
+      const group = groups.get(id);
+      return group ? toStokDTO(group) : null;
+    })
+    .filter((d): d is StokDTO => d !== null);
+
+  const filtered = opts.lowOnly ? items.filter((d) => d.isLow) : items;
+
+  return { items: filtered, pagination: buildMeta(total, opts.page, opts.pageSize) };
 }
 
 // ---------------------------------------------------------------------------

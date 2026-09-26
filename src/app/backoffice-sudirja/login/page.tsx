@@ -18,7 +18,6 @@ function LogoMark() {
 
 export default function BackofficeLoginPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"kasir" | "manajemen">("manajemen");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -26,11 +25,6 @@ export default function BackofficeLoginPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (activeTab === "kasir") {
-      setError("Login kasir belum tersedia. Fokus saat ini adalah portal admin.");
-      return;
-    }
-
     setError("");
     setIsSubmitting(true);
     try {
@@ -89,10 +83,6 @@ export default function BackofficeLoginPage() {
           <LogoMark />
           <h1 className="mt-4 text-2xl font-semibold tracking-[-0.04em] text-[#15090b]">Sudirja</h1>
           <p className="mt-2 text-sm text-[#1a0408]/60">Portal manajemen toko</p>
-        </div>
-        <div className="mb-7 grid grid-cols-2 gap-1 rounded-xl bg-[#f8f6f8] p-1" role="tablist" aria-label="Jenis login">
-          <button type="button" role="tab" aria-selected={activeTab === "kasir"} onClick={() => { setActiveTab("kasir"); setError(""); }} className={`rounded-lg px-3 py-2.5 text-sm font-medium transition ${activeTab === "kasir" ? "bg-[#27b446] text-white shadow-sm" : "text-[#1a0408]/55 hover:bg-white"}`}>Login Kasir</button>
-          <button type="button" role="tab" aria-selected={activeTab === "manajemen"} onClick={() => { setActiveTab("manajemen"); setError(""); }} className={`rounded-lg px-3 py-2.5 text-sm font-medium transition ${activeTab === "manajemen" ? "bg-[#27b446] text-white shadow-sm" : "text-[#1a0408]/55 hover:bg-white"}`}>Login Manajemen</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>

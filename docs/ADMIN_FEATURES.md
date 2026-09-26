@@ -53,6 +53,7 @@ Settings (generate/export).
 - **Satuan produk** (`produk_satuan_id`) → pembelian, konsinyasi, dan pesanan
   mengurangi/menambah stok per satuan yang dipilih (catatan `stok_history`).
 - **Konsinyasi**: create +stok; jual (pesanan) −stok & update `qty_terjual`;
+  retur pesanan → +stok kembali & `qty_terjual` dibatalkan;
   selesai/hapus → sisa dikembalikan −stok.
 - **Pembelian**: create +stok; hapus → stok dikembalikan.
 - **Promo** aktif valid → dipakai `POST /pesanan` (diskon), kuota berkurang.

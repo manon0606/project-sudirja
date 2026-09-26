@@ -53,7 +53,7 @@ Response login/me `data.admin`: `{id,username,email,fullName,role,roleLabel,perm
 | POST | `/pesanan` | Buat pesanan. Body: `{items[],metodeBayar,asal?,pelangganId?,voucher?,uangDiterima?,cashIn?,cashOut?,catatan?}`. **Commerce wajib `pelangganId`** (dari master). Item: `{produkId?,produkSatuanId?,namaProduk,qty,harga}`. Auth: sesi admin **atau** header `X-API-Key` POS (saat mode online settings). Mengurangi stok & mencatat komisi/konsinyasi terjual. |
 | GET | `/pesanan/[no]` | Detail pesanan + items + pelanggan/kurir |
 | PATCH | `/pesanan/[no]` | Update pengiriman commerce. Body: `{kurirId?,statusPengiriman?(Menunggu Kurir\|Diantar\|Selesai)}` |
-| POST | `/pesanan/[no]/retur` | Buat retur |
+| POST | `/pesanan/[no]/retur` | Buat retur (sebagian/semua). Mengembalikan stok item yang diretur + membatalkan hitungan `qty_terjual` konsinyasi aktif; status pesanan → `Dikembalikan` |
 | GET | `/pesanan/produk` | Cari produk utk form pesanan: `?search=` → `[{produkId,sku,nama,harga,stok,satuan[]}]` |
 | GET | `/pesanan/kredit` | List pesanan kredit |
 | GET | `/pesanan/[no]/kredit` | Detail kredit + pembayaran |
@@ -89,7 +89,8 @@ commerce `Diproses` + `status_pengiriman=Menunggu Kurir`.
 | GET | `/stok/[sku]/history` | Riwayat mutasi stok |
 
 Stok tersimpan per `produk_satuan_id` (unique). Pembelian & konsinyasi menambah;
-pesanan & retur mengurangi; konsinyasi selesai/hapus mengembalikan sisa.
+pesanan mengurangi; retur pesanan mengembalikan stok item yang diretur; konsinyasi
+selesai/hapus mengembalikan sisa.
 
 ---
 
