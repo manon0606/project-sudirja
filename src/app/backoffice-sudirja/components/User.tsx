@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import Modal from "./Modal";
 import DatePicker from "./DatePicker";
@@ -11,7 +11,8 @@ import {
 import {
   getKomisiSettings, listKomisiRekap, listKomisiTransaksi, updateKomisiSetting,
 } from "@/lib/komisi-api";
-import { parseCsv } from "./BulkUploadReference";
+import { parseCsv, statusToIsActive, STATUS_HEADER_ALIASES } from "./BulkUploadReference";
+import BulkUploadModal, { type BulkUploadOutcome } from "./BulkUploadModal";
 import type { CreateUserInput, RoleDTO, UserDTO } from "@/lib/user-types";
 import { FEATURE_CODES } from "@/lib/user-types";
 import type { KomisiRekapDTO, KomisiSettingDTO, KomisiTransaksiDTO } from "@/lib/komisi-types";
@@ -1273,7 +1274,7 @@ export default function User() {
   const [form, setForm] = useState<CreateUserInput>(emptyForm);
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [showBulk, setShowBulk] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1377,31 +1378,42 @@ export default function User() {
     } finally { setBusy(false); }
   };
 
-  const importCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  // Proses file CSV bulk upload (dipanggil BulkUploadModal) — hasil per baris
+  // dikembalikan sebagai {success, failures}, error file dilempar sebagai Error.
+  const importFile = async (file: File): Promise<BulkUploadOutcome> => {
     try {
       const rows = parseCsv(await file.text());
+      if (rows.length === 0) throw new Error("File CSV kosong.");
       const header = rows[0].map((x) => x.trim().toLowerCase());
       const value = (row: string[], ...names: string[]) => {
         const index = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
         return index >= 0 ? row[index] ?? "" : "";
       };
-      const payload = rows.slice(1).map((row) => ({
-        username: value(row, "username", "user"),
-        password: value(row, "password"),
-        fullName: value(row, "nama", "nama lengkap", "full name"),
-        role: (value(row, "role", "posisi") || "kasir"),
-        phone: value(row, "nomor hp", "no hp", "phone") || null,
-        email: value(row, "email") || null,
-        isActive: true,
-      }));
+      const payload = rows.slice(1).map((row) => {
+        // Kolom OPSIONAL status → isActive; kosong/tak dikenal → field tidak
+        // dikirim (default server = Aktif).
+        const isActive = statusToIsActive(value(row, ...STATUS_HEADER_ALIASES));
+        return {
+          username: value(row, "username", "user"),
+          password: value(row, "password"),
+          fullName: value(row, "nama", "nama lengkap", "full name"),
+          role: (value(row, "role", "posisi") || "kasir"),
+          phone: value(row, "nomor hp", "no hp", "phone") || null,
+          email: value(row, "email") || null,
+          ...(isActive === undefined ? {} : { isActive }),
+        };
+      });
       const result = await bulkCreateUsers(payload);
-      alert(`Berhasil: ${result.success}, gagal: ${result.failures.length}`);
-      await load();
+      // bulkCreateUsers memberi nomor baris relatif thd data (tanpa header) →
+      // geser +1 supaya cocok dengan nomor baris file CSV (header = baris 1).
+      return {
+        success: result.success,
+        failures: result.failures.map((f) => ({ row: f.row + 1, label: f.username || undefined, message: f.message })),
+      };
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "CSV user tidak valid.");
+      if (err instanceof ApiClientError) throw new Error(err.message);
+      if (err instanceof Error) throw err;
+      throw new Error("CSV user tidak valid.");
     }
   };
 
@@ -1485,20 +1497,19 @@ export default function User() {
                             <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p>
                           </div>
                         </button>
-                        <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
+                        <button onClick={() => { setShowAddMenu(false); setShowBulk(true); }}
                           className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
                           style={{ color: '#1a0408' }}>
                           <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
                           <div>
                             <p style={{ color: '#000000' }}>Bulk Upload</p>
-                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
+                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p>
                           </div>
                         </button>
                       </div>
                     </>
                   )}
                 </div>
-                <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
               </div>
             ) : null}
           </div>
@@ -1750,6 +1761,27 @@ export default function User() {
           busy={busy}
           roles={roles}
           error={formError}
+        />
+      )}
+
+      {/* Bulk upload modal */}
+      {showBulk && (
+        <BulkUploadModal
+          title="Upload User Bulk"
+          resultLabel="user"
+          columns={["Username", "Password", "Nama Lengkap", "Role", "Nomor HP", "Email"]}
+          formatNote="Username wajib unik dan password wajib diisi. Role bebas (default: kasir). Nomor HP dan email opsional. Setiap baris = satu user. Kolom opsional: Status (Aktif/Nonaktif, default Aktif)."
+          sample={{
+            headers: ["Username", "Password", "Nama Lengkap", "Role", "Nomor HP", "Email", "Status"],
+            rows: [
+              ["budi01", "rahasia123", "Budi Santoso", "kasir", "081234567890", "budi@sudirja.local", "Aktif"],
+              ["siti01", "rahasia123", "Siti Aminah", "admin", "081298765432", "siti@sudirja.local", "Nonaktif"],
+            ],
+          }}
+          sampleFilename="sample-user.csv"
+          onFile={importFile}
+          onDone={() => void load()}
+          onClose={() => setShowBulk(false)}
         />
       )}
     </div>

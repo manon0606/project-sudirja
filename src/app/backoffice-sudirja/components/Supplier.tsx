@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import Modal from "./Modal";
 import { ApiClientError } from "@/lib/api-client";
@@ -7,7 +7,8 @@ import {
   bulkCreateSupplier, createSupplier, deleteSupplier, downloadSupplierCsv,
   listSupplier, updateSupplier,
 } from "@/lib/supplier-api";
-import { parseCsv } from "./BulkUploadReference";
+import { parseCsv, statusToIsActive, STATUS_HEADER_ALIASES } from "./BulkUploadReference";
+import BulkUploadModal, { type BulkUploadOutcome } from "./BulkUploadModal";
 import type { CreateSupplierInput, SupplierDTO } from "@/lib/supplier-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
@@ -329,7 +330,7 @@ export default function Supplier() {
   const [form, setForm] = useState<CreateSupplierInput>(emptyForm);
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [showBulk, setShowBulk] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -446,10 +447,7 @@ export default function Supplier() {
     } finally { setBusy(false); }
   };
 
-  const importCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  const importFile = async (file: File): Promise<BulkUploadOutcome> => {
     try {
       const rows = parseCsv(await file.text());
       const header = rows[0].map((x) => x.trim().toLowerCase());
@@ -457,27 +455,36 @@ export default function Supplier() {
         const index = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
         return index >= 0 ? row[index] ?? "" : "";
       };
-      const payload = rows.slice(1).map((row) => ({
-        nama: value(row, "nama", "nama supplier"),
-        alamat: value(row, "alamat") || null,
-        kota: value(row, "kota") || null,
-        provinsi: value(row, "provinsi") || null,
-        negara: value(row, "negara") || "Indonesia",
-        kodepos: value(row, "kodepos", "kode pos") || null,
-        telepon: value(row, "telepon", "no telepon", "phone") || null,
-        fax: value(row, "fax") || null,
-        bank: value(row, "bank") || null,
-        norek: value(row, "norek", "no rekening", "no rek") || null,
-        atasnama: value(row, "atasnama", "atas nama") || null,
-        kontak: value(row, "kontak", "kontak person", "pic") || null,
-        email: value(row, "email") || null,
-        keterangan: value(row, "keterangan", "ket") || null,
-      }));
+      const payload = rows.slice(1).map((row) => {
+        // Kolom OPSIONAL status → isActive; kosong/tak dikenal → field tidak
+        // dikirim (default server = Aktif).
+        const isActive = statusToIsActive(value(row, ...STATUS_HEADER_ALIASES));
+        return {
+          nama: value(row, "nama", "nama supplier"),
+          alamat: value(row, "alamat") || null,
+          kota: value(row, "kota") || null,
+          provinsi: value(row, "provinsi") || null,
+          negara: value(row, "negara") || "Indonesia",
+          kodepos: value(row, "kodepos", "kode pos") || null,
+          telepon: value(row, "telepon", "no telepon", "phone") || null,
+          fax: value(row, "fax") || null,
+          bank: value(row, "bank") || null,
+          norek: value(row, "norek", "no rekening", "no rek") || null,
+          atasnama: value(row, "atasnama", "atas nama") || null,
+          kontak: value(row, "kontak", "kontak person", "pic") || null,
+          email: value(row, "email") || null,
+          keterangan: value(row, "keterangan", "ket") || null,
+          ...(isActive === undefined ? {} : { isActive }),
+        };
+      });
       const result = await bulkCreateSupplier(payload);
-      alert(`Berhasil: ${result.success}, gagal: ${result.failures.length}`);
-      await load();
+      return {
+        success: result.success,
+        // result.failures.row = index baris data (1-based) → nomor baris CSV = index + 2 (header di baris 1).
+        failures: result.failures.map((f) => ({ row: f.row + 1, label: f.nama, message: f.message })),
+      };
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "CSV supplier tidak valid.");
+      throw new Error(err instanceof ApiClientError ? err.message : "Gagal membaca file. Pastikan file CSV supplier valid.");
     }
   };
 
@@ -586,14 +593,13 @@ export default function Supplier() {
               <Download className="w-4 h-4" />
               Export Data
             </button>
-            <button onClick={() => fileRef.current?.click()}
+            <button onClick={() => setShowBulk(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-opacity hover:opacity-90 text-sm"
               style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
-              title="Import supplier dari CSV">
+              title="Bulk upload supplier dari CSV">
               <Upload className="w-4 h-4" />
               Bulk Upload
             </button>
-            <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
           </div>
         </div>
 
@@ -838,6 +844,27 @@ export default function Supplier() {
               style={{ backgroundColor: '#e40b18' }}>{busy ? "Menghapus..." : "Hapus"}</button>
           </div>
         </Modal>
+      )}
+
+      {/* Bulk Upload */}
+      {showBulk && (
+        <BulkUploadModal
+          title="Upload Supplier Bulk"
+          resultLabel="supplier"
+          columns={["nama", "alamat", "kota", "provinsi", "negara", "kodepos", "telepon", "fax", "bank", "norek", "atasnama", "kontak", "email", "keterangan"]}
+          formatNote="Baris pertama file adalah header. Hanya kolom 'nama' yang wajib diisi; kolom lain opsional (negara default 'Indonesia'). Alias yang dikenali: 'nama supplier' (nama), 'kode pos' (kodepos), 'no telepon' / 'phone' (telepon), 'no rekening' / 'no rek' (norek), 'atas nama' (atasnama), 'kontak person' / 'pic' (kontak), 'ket' (keterangan). Kolom opsional: Status (Aktif/Nonaktif, default Aktif)."
+          sample={{
+            headers: ["nama", "alamat", "kota", "provinsi", "negara", "kodepos", "telepon", "fax", "bank", "norek", "atasnama", "kontak", "email", "keterangan", "status"],
+            rows: [
+              ["PT Sumber Pangan", "Jl. Industri No. 5", "Palembang", "Sumatera Selatan", "Indonesia", "30111", "0711-123456", "", "BCA", "1234567890", "Budi Santoso", "Andi Wijaya", "andi@sumbepangan.co.id", "Supplier beras", "Aktif"],
+              ["CV Maju Jaya", "Jl. Raya Sukarami No. 12", "Palembang", "Sumatera Selatan", "Indonesia", "30121", "081234567890", "", "Mandiri", "9876543210", "Sari Dewi", "Sari Dewi", "sari@majujaya.co.id", "Supplier minyak goreng", "Nonaktif"],
+            ],
+          }}
+          sampleFilename="sample-supplier.csv"
+          onFile={importFile}
+          onDone={() => void load()}
+          onClose={() => setShowBulk(false)}
+        />
       )}
     </div>
   );

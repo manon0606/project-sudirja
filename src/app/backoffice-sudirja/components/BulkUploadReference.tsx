@@ -106,6 +106,29 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+// ---------------------------------------------------------------------------
+// Parsing kolom status OPSIONAL pada CSV bulk → isActive (dipakai parser bulk
+// ongkir/supplier/user/produk). Header case-insensitive.
+// ---------------------------------------------------------------------------
+
+/** Alias header kolom status yang dikenali (cocokkan terhadap header lowercase). */
+export const STATUS_HEADER_ALIASES: string[] = ["status", "aktif", "is active", "is_active", "active"];
+
+/**
+ * Nilai status → isActive.
+ *   nonaktif|tidak|0|false|no|n|inactive|mati → false
+ *   aktif|ya|1|true|yes|y|active             → true
+ *   kosong / tak dikenal                      → undefined (field TIDAK dikirim,
+ *   sehingga perilaku default server = Aktif tidak berubah).
+ */
+export function statusToIsActive(raw: string): boolean | undefined {
+  const v = raw.trim().toLowerCase();
+  if (!v) return undefined;
+  if (["nonaktif", "tidak", "0", "false", "no", "n", "inactive", "mati"].includes(v)) return false;
+  if (["aktif", "ya", "1", "true", "yes", "y", "active"].includes(v)) return true;
+  return undefined;
+}
+
 const KIND_LABEL: Record<ReferenceKind, string> = {
   satuan: "Satuan",
   merk: "Merk",

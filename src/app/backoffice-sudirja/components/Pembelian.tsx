@@ -8,6 +8,7 @@ import {
 import { listSupplier } from "@/lib/supplier-api";
 import { listProduk } from "@/lib/product-api";
 import { parseCsv } from "./BulkUploadReference";
+import BulkUploadModal, { type BulkUploadFailure, type BulkUploadOutcome } from "./BulkUploadModal";
 import Modal from "./Modal";
 import DatePicker from "./DatePicker";
 import type { PembelianDTO } from "@/lib/pembelian-types";
@@ -443,7 +444,7 @@ export default function Pembelian() {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [viewing, setViewing] = useState<PembelianDTO | null>(null);
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [showBulk, setShowBulk] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
   // Tutup dropdown "Tambah Data" saat klik di luar.
@@ -514,12 +515,12 @@ export default function Pembelian() {
     } catch (e) { setError(e instanceof ApiClientError ? e.message : "Gagal export data."); }
   };
 
-  const importCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  // Proses file CSV bulk upload (dipanggil BulkUploadModal) — hasil per baris
+  // dikembalikan sebagai {success, failures}, error file dilempar sebagai Error.
+  const importFile = async (file: File): Promise<BulkUploadOutcome> => {
     try {
       const rows = parseCsv(await file.text());
+      if (rows.length === 0) throw new Error("File CSV kosong.");
       const header = rows[0].map((x) => x.trim().toLowerCase());
       const value = (row: string[], ...names: string[]) => {
         const idx = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
@@ -527,12 +528,12 @@ export default function Pembelian() {
       };
       const supplierCodeMap = new Map(suppliers.map((s) => [s.kode, s.id]));
       const supplierNameMap = new Map(suppliers.map((s) => [s.nama.toLowerCase(), s.id]));
-      const grouped = new Map<number, { tanggal: string; supplierId: number; rows: Array<{ sku: string; nama: string; qty: number; hargaBeli: number; hargaJual: number; diskon: number }> }>();
-      const failures: string[] = [];
+      const grouped = new Map<number, { tanggal: string; supplierId: number; firstRow: number; rows: Array<{ sku: string; nama: string; qty: number; hargaBeli: number; hargaJual: number; diskon: number }> }>();
+      const failures: BulkUploadFailure[] = [];
       rows.slice(1).forEach((row, idx) => {
         const supplierRef = value(row, "supplier", "supplier kode", "kode supplier", "vendor");
         const supplierId = supplierCodeMap.get(supplierRef) ?? supplierNameMap.get(supplierRef.toLowerCase());
-        if (!supplierId) { failures.push(`baris ${idx + 2}: supplier tidak dikenal (${supplierRef})`); return; }
+        if (!supplierId) { failures.push({ row: idx + 2, message: `supplier tidak dikenal (${supplierRef})` }); return; }
         const tanggal = value(row, "tanggal") || format(new Date(), "yyyy-MM-dd");
         const sku = value(row, "sku", "kode produk");
         const nama = value(row, "nama produk", "nama", "produk");
@@ -540,8 +541,8 @@ export default function Pembelian() {
         const hargaBeli = Number(value(row, "harga beli", "harga_beli")) || 0;
         const hargaJual = Number(value(row, "harga jual", "harga_jual")) || 0;
         const diskon = Number(value(row, "diskon")) || 0;
-        if (!sku || !nama || qty <= 0) { failures.push(`baris ${idx + 2}: data produk/qty tidak valid`); return; }
-        const g = grouped.get(supplierId) ?? { tanggal, supplierId, rows: [] };
+        if (!sku || !nama || qty <= 0) { failures.push({ row: idx + 2, message: "data produk/qty tidak valid" }); return; }
+        const g = grouped.get(supplierId) ?? { tanggal, supplierId, firstRow: idx + 2, rows: [] };
         if (!grouped.has(supplierId)) { g.tanggal = tanggal; grouped.set(supplierId, g); }
         g.rows.push({ sku, nama, qty, hargaBeli, hargaJual, diskon });
       });
@@ -553,12 +554,13 @@ export default function Pembelian() {
             items: g.rows.map((r) => ({ produkId: null, sku: r.sku, namaProduk: r.nama, qty: r.qty, hargaBeli: r.hargaBeli, hargaJual: r.hargaJual, diskon: r.diskon })),
           });
           success++;
-        } catch { failures.push(`pembelian supplier ${supplierId}: gagal`); }
+        } catch { failures.push({ row: g.firstRow, message: `pembelian supplier ${supplierId}: gagal` }); }
       }
-      alert(`Berhasil: ${success} pembelian${failures.length ? `, gagal: ${failures.length} (${failures.slice(0, 3).join("; ")})` : ""}`);
-      await load();
+      return { success, failures };
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "CSV pembelian tidak valid.");
+      if (err instanceof ApiClientError) throw new Error(err.message);
+      if (err instanceof Error) throw err;
+      throw new Error("CSV pembelian tidak valid.");
     }
   };
 
@@ -611,7 +613,7 @@ export default function Pembelian() {
                         <Plus className="w-5 h-5" style={{ color: '#27b446' }} />
                         <div><p style={{ color: '#000000' }}>Manual</p><p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p></div>
                       </button>
-                      <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
+                      <button onClick={() => { setShowAddMenu(false); setShowBulk(true); }}
                         className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200" style={{ color: '#1a0408' }}>
                         <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
                         <div><p style={{ color: '#000000' }}>Bulk Upload</p><p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p></div>
@@ -619,7 +621,6 @@ export default function Pembelian() {
                     </div>
                 )}
               </div>
-              <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
             </div>
           </div>
         </div>
@@ -796,6 +797,27 @@ export default function Pembelian() {
           data={viewing}
           onClose={() => setViewing(null)}
           onDelete={(id) => void hapus(id)}
+        />
+      )}
+
+      {/* Bulk upload modal */}
+      {showBulk && (
+        <BulkUploadModal
+          title="Upload Pembelian Bulk"
+          resultLabel="pembelian"
+          columns={["Supplier", "Tanggal", "SKU", "Nama Produk", "Qty", "Harga Beli", "Harga Jual", "Diskon"]}
+          formatNote="Supplier bisa kode (SUP-001) atau nama. Tanggal format YYYY-MM-DD (opsional, default hari ini). Qty minimal 1. Diskon per item (opsional, default 0). Setiap baris = satu item; baris dengan supplier sama digabung jadi satu pembelian."
+          sample={{
+            headers: ["Supplier", "Tanggal", "SKU", "Nama Produk", "Qty", "Harga Beli", "Harga Jual", "Diskon"],
+            rows: [
+              ["SUP-001", "2026-09-27", "IND-001", "Indomie", "24", "19500", "24000", "0"],
+              ["SUP-001", "2026-09-27", "TEB-001", "Teh Botol", "12", "2900", "5000", "0"],
+            ],
+          }}
+          sampleFilename="sample-pembelian.csv"
+          onFile={importFile}
+          onDone={() => void load()}
+          onClose={() => setShowBulk(false)}
         />
       )}
     </div>

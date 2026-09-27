@@ -1,12 +1,13 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import Modal from "./Modal";
 import { ApiClientError } from "@/lib/api-client";
 import {
   bulkCreateOngkir, createOngkir, deleteOngkir, downloadOngkirCsv, listOngkir, updateOngkir,
 } from "@/lib/ongkir-api";
-import { parseCsv } from "./BulkUploadReference";
+import { parseCsv, statusToIsActive, STATUS_HEADER_ALIASES } from "./BulkUploadReference";
+import BulkUploadModal, { type BulkUploadOutcome } from "./BulkUploadModal";
 import type { CreateOngkirInput, OngkirDTO } from "@/lib/ongkir-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
@@ -63,9 +64,9 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
               <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
             </div>
           )}
-          <div className="space-y-4">
+          <div className="space-y-5">
             <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kode *</span>
+              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Kode *</span>
               <input
                 value={value.kode} disabled={kodeDisabled}
                 onChange={(e) => set("kode", e.target.value)}
@@ -76,7 +77,7 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
               {kodeDisabled && <p className="text-xs mt-1" style={{ color: '#1a0408', opacity: 0.5 }}>Kode tidak dapat diubah</p>}
             </label>
             <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kecamatan *</span>
+              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Kecamatan *</span>
               <input
                 value={value.kecamatan}
                 onChange={(e) => set("kecamatan", e.target.value)}
@@ -86,7 +87,7 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
               />
             </label>
             <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Ongkir (Rp) *</span>
+              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Ongkir (Rp) *</span>
               <input
                 type="number" min="0" value={value.ongkir || ""}
                 onChange={(e) => set("ongkir", Number(e.target.value))}
@@ -96,7 +97,7 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
               />
             </label>
             <label>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Status</span>
+              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Status</span>
               <button
                 type="button"
                 onClick={() => set("isActive", !value.isActive)}
@@ -239,7 +240,7 @@ export default function Pemetaan() {
   const [form, setForm] = useState<CreateOngkirInput>(emptyForm);
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [showBulk, setShowBulk] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -363,10 +364,7 @@ export default function Pemetaan() {
     } finally { setBusy(false); }
   };
 
-  const importCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  const importFile = async (file: File): Promise<BulkUploadOutcome> => {
     try {
       const rows = parseCsv(await file.text());
       const header = rows[0].map((x) => x.trim().toLowerCase());
@@ -374,16 +372,25 @@ export default function Pemetaan() {
         const index = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
         return index >= 0 ? row[index] ?? "" : "";
       };
-      const payload = rows.slice(1).map((row) => ({
-        kode: value(row, "kode", "id", "kode kecamatan"),
-        kecamatan: value(row, "kecamatan", "nama kecamatan"),
-        ongkir: Number(value(row, "ongkir", "biaya", "harga")) || 0,
-      }));
+      const payload = rows.slice(1).map((row) => {
+        // Kolom OPSIONAL status → isActive; kosong/tak dikenal → field tidak
+        // dikirim (default server = Aktif).
+        const isActive = statusToIsActive(value(row, ...STATUS_HEADER_ALIASES));
+        return {
+          kode: value(row, "kode", "id", "kode kecamatan"),
+          kecamatan: value(row, "kecamatan", "nama kecamatan"),
+          ongkir: Number(value(row, "ongkir", "biaya", "harga")) || 0,
+          ...(isActive === undefined ? {} : { isActive }),
+        };
+      });
       const result = await bulkCreateOngkir(payload);
-      alert(`Berhasil: ${result.success}, gagal: ${result.failures.length}`);
-      await load();
+      return {
+        success: result.success,
+        // result.failures.row = index baris data (1-based) → nomor baris CSV = index + 2 (header di baris 1).
+        failures: result.failures.map((f) => ({ row: f.row + 1, label: f.kode, message: f.message })),
+      };
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "CSV pemetaan ongkir tidak valid.");
+      throw new Error(err instanceof ApiClientError ? err.message : "Gagal membaca file. Pastikan file CSV pemetaan ongkir valid.");
     }
   };
 
@@ -451,20 +458,19 @@ export default function Pemetaan() {
                           <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p>
                         </div>
                       </button>
-                      <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
+                      <button onClick={() => { setShowAddMenu(false); setShowBulk(true); }}
                         className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
                         style={{ color: '#1a0408' }}>
                         <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
                         <div>
                           <p style={{ color: '#000000' }}>Bulk Upload</p>
-                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
+                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p>
                         </div>
                       </button>
                     </div>
                   </>
                 )}
               </div>
-              <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
             </div>
           </div>
         </div>
@@ -775,6 +781,27 @@ export default function Pemetaan() {
           busy={busy}
           onClose={() => setShowBulkDeleteConfirm(false)}
           onConfirm={() => void confirmBulkDelete()}
+        />
+      )}
+
+      {/* Bulk Upload */}
+      {showBulk && (
+        <BulkUploadModal
+          title="Upload Pemetaan & Ongkir Bulk"
+          resultLabel="ongkir"
+          columns={["kode", "kecamatan", "ongkir"]}
+          formatNote="Baris pertama file adalah header. Kolom 'ongkir' harus angka rupiah (tanpa titik/Rp). Alias yang dikenali: 'id' / 'kode kecamatan' (kode), 'nama kecamatan' (kecamatan), 'biaya' / 'harga' (ongkir). Kolom opsional: Status (Aktif/Nonaktif, default Aktif)."
+          sample={{
+            headers: ["kode", "kecamatan", "ongkir", "status"],
+            rows: [
+              ["327101", "Sukarami", "10000", "Aktif"],
+              ["327102", "Ilir Barat I", "12000", "Nonaktif"],
+            ],
+          }}
+          sampleFilename="sample-ongkir.csv"
+          onFile={importFile}
+          onDone={() => void load()}
+          onClose={() => setShowBulk(false)}
         />
       )}
     </div>

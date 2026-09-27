@@ -200,7 +200,7 @@ export function toReturDTO(
 }
 
 // ---------------------------------------------------------------------------
-// List (dengan pagination, search no_pesanan, filter status & tanggal, sort)
+// List (dengan pagination, search no_pesanan / nama pelanggan, filter status & tanggal, sort)
 // ---------------------------------------------------------------------------
 
 const PESANAN_SORT_COLUMNS: Record<string, string> = {
@@ -254,8 +254,10 @@ export async function listPesanan(
   const where: string[] = [];
   const params: unknown[] = [];
   if (opts.search) {
-    where.push("p.no_pesanan LIKE ?");
-    params.push(`%${opts.search}%`);
+    // Cari di no_pesanan ATAU nama pelanggan (relasi p.pelanggan_id → pelanggan.nama).
+    // Subquery EXISTS dipakai agar tetap valid utk query COUNT yang tidak join pelanggan.
+    where.push("(p.no_pesanan LIKE ? OR EXISTS (SELECT 1 FROM pelanggan pgc WHERE pgc.id = p.pelanggan_id AND pgc.nama LIKE ?))");
+    params.push(`%${opts.search}%`, `%${opts.search}%`);
   }
   if (opts.status) {
     where.push("p.status = ?");

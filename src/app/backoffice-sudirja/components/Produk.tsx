@@ -14,6 +14,7 @@ import {
   updateProdukStatus,
 } from "@/lib/product-api";
 import { useReferenceLists } from "./useReferenceLists";
+import { statusToIsActive, STATUS_HEADER_ALIASES } from "./BulkUploadReference";
 import type {
   CreateProdukInput,
   KategoriDTO,
@@ -2219,7 +2220,7 @@ function BulkUploadModal({ onClose, onDone, satuanList, merkList, kategoriList }
         satuan: header.indexOf("satuan"),
         kodeItem: header.indexOf("kode item"),
         harga: header.indexOf("harga"),
-        status: header.indexOf("status"),
+        status: STATUS_HEADER_ALIASES.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1,
         deskripsi: header.indexOf("deskripsi"),
         gambar: header.indexOf("url gambar"),
       };
@@ -2268,8 +2269,17 @@ function BulkUploadModal({ onClose, onDone, satuanList, merkList, kategoriList }
           continue;
         }
 
-        const statusRaw = get(idx.status).toLowerCase();
-        const status = statusRaw === "inactive" || statusRaw === "tidak aktif" ? "inactive" : "active";
+        // Kolom OPSIONAL status → status produk; 'tidak aktif' tetap dikenali
+        // utk kompatibilitas. Kosong/tak dikenal → field tidak dikirim
+        // (default server = aktif).
+        const statusRaw = get(idx.status);
+        const isActiveVal = statusToIsActive(statusRaw);
+        const status =
+          isActiveVal === false || statusRaw.trim().toLowerCase() === "tidak aktif"
+            ? "inactive" as const
+            : isActiveVal === true
+              ? "active" as const
+              : undefined;
 
         const existing = grouped.get(sku);
         const satuanRow = { satuanKode: satuan.kode, kodeItem, harga };
@@ -2289,7 +2299,7 @@ function BulkUploadModal({ onClose, onDone, satuanList, merkList, kategoriList }
             gambarUrl: get(idx.gambar) || "",
             kategoriKode: kategori.kode,
             merkKode: merk.kode,
-            status,
+            ...(status !== undefined ? { status } : {}),
             satuan: [satuanRow],
             _nama: nama,
           });
@@ -2334,7 +2344,7 @@ function BulkUploadModal({ onClose, onDone, satuanList, merkList, kategoriList }
       "SKU,Nama Produk,Merk,Kategori,Satuan,Kode Item,Harga,Status,Deskripsi,URL Gambar",
       "BRG-001,Contoh Produk,Indomie Update,Makanan & Minuman,Lusin Besar,BRG-001-003,100000,active,Contoh deskripsi,",
       "BRG-001,Contoh Produk,Indomie Update,Makanan & Minuman,Dus,BRG-001-004,55000,active,Contoh deskripsi,",
-      "ind001,Indomie Goreng Spesial,Indomie Update,Makanan & Minuman,Dus,ind001-004,55500,active,Update via bulk,",
+      "ind001,Indomie Goreng Spesial,Indomie Update,Makanan & Minuman,Dus,ind001-004,55500,Nonaktif,Update via bulk,",
     ].join("\n");
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
@@ -2449,6 +2459,9 @@ function BulkUploadModal({ onClose, onDone, satuanList, merkList, kategoriList }
             </div>
             <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.6 }}>
               Format sama dengan tambah produk manual. Merk, Kategori, dan Satuan harus sudah ada di master data (Kelola Merk / Kategori / Satuan).
+            </p>
+            <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
+              Kolom opsional: Status (Aktif/Nonaktif, default Aktif).
             </p>
             <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
               Upsert: bila SKU sudah ada, data produk diperbarui; bila belum ada, produk baru dibuat. Stok per satuan otomatis dibuat.

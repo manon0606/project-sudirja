@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "./useUser";
 
@@ -84,6 +84,13 @@ export default function AdminSidebar({ activePage = "dashboard" }: { activePage?
 
   const visibleMenu = menu.filter(hasAccess);
 
+  // Item aktif harus tetap terlihat: nav remount tiap navigasi (scroll container
+  // reset ke atas) — scrollIntoView 'nearest' mengembalikan posisi tanpa lompatan.
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activePage]);
+
   // Petakan id halaman (termasuk submenu) → kode modul izin (id menu induk).
   const moduleOfPage: Partial<Record<SidebarPage, string>> = {};
   for (const item of menu) {
@@ -127,7 +134,7 @@ export default function AdminSidebar({ activePage = "dashboard" }: { activePage?
     </div>
     <nav className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">
       {visibleMenu.map((item) => <div key={item.id}>
-        <button type="button" onClick={() => selectItem(item)} className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm transition ${active === item.id ? "bg-[#27b446] text-white" : "text-[#1a0408]/70 hover:bg-[#f3f4f6] hover:text-[#1a0408]"}`}>
+        <button type="button" ref={active === item.id ? activeRef : undefined} onClick={() => selectItem(item)} className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm transition ${active === item.id ? "bg-[#27b446] text-white" : "text-[#1a0408]/70 hover:bg-[#f3f4f6] hover:text-[#1a0408]"}`}>
           <span className="flex min-w-0 items-center gap-3"><Icon name={item.icon} /><span className={collapsed ? "sr-only" : "min-w-0 truncate"}>{item.label}</span></span>
           {!collapsed && item.children && <Icon name="chevron-down" className={`h-4 w-4 transition ${expanded.includes(item.id) ? "rotate-180" : ""}`} />}
         </button>

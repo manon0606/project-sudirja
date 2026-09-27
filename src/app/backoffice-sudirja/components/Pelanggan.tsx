@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import Modal from "./Modal";
 import { ApiClientError } from "@/lib/api-client";
@@ -7,7 +7,9 @@ import {
   bulkCreatePelanggan, createPelanggan, deletePelanggan, downloadPelangganCsv,
   listPelanggan, updatePelanggan,
 } from "@/lib/pelanggan-api";
+import { listOngkir } from "@/lib/ongkir-api";
 import { parseCsv } from "./BulkUploadReference";
+import BulkUploadModal, { type BulkUploadOutcome } from "./BulkUploadModal";
 import type { CreatePelangganInput, PelangganDTO } from "@/lib/pelanggan-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
@@ -48,6 +50,39 @@ interface PelangganFormProps {
 
 function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, error }: PelangganFormProps) {
   const set = (key: keyof CreatePelangganInput, next: unknown) => onChange({ ...value, [key]: next } as CreatePelangganInput);
+
+  // Opsi kecamatan dari data Pemetaan & Ongkir (unique, abjad; yang aktif diprioritaskan).
+  const [kecamatanOptions, setKecamatanOptions] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await listOngkir({ pageSize: 100 });
+        if (cancelled) return;
+        const aktif = new Set<string>();
+        const nonaktif = new Set<string>();
+        for (const o of res.items) {
+          const k = (o.kecamatan ?? "").trim();
+          if (!k) continue;
+          (o.isActive ? aktif : nonaktif).add(k);
+        }
+        const byName = (a: string, b: string) => a.localeCompare(b, "id");
+        const opts = [...aktif].sort(byName);
+        for (const k of [...nonaktif].sort(byName)) if (!aktif.has(k)) opts.push(k);
+        setKecamatanOptions(opts);
+      } catch {
+        if (!cancelled) setKecamatanOptions([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Saat edit: kecamatan lama yang tidak ada di daftar tetap tampil sebagai opsi tambahan.
+  const currentKecamatan = value.kecamatan ?? "";
+  const selectOptions = !currentKecamatan || kecamatanOptions.includes(currentKecamatan)
+    ? kecamatanOptions
+    : [currentKecamatan, ...kecamatanOptions];
+
   return (
     <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl overflow-hidden">
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
@@ -99,10 +134,14 @@ function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, bu
             </label>
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kecamatan</span>
-              <input value={value.kecamatan ?? ""} onChange={(e) => set("kecamatan", e.target.value)}
-                placeholder="cth: Ciputat"
+              <select value={value.kecamatan ?? ""} onChange={(e) => set("kecamatan", e.target.value)}
                 className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={focusRingStyle} />
+                style={focusRingStyle}>
+                <option value="">-- Pilih Kecamatan --</option>
+                {selectOptions.map((k) => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+              </select>
             </label>
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Keanggotaan</span>
@@ -380,7 +419,7 @@ export default function Pelanggan() {
   const [form, setForm] = useState<CreatePelangganInput>(emptyForm);
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [showBulk, setShowBulk] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -518,10 +557,7 @@ export default function Pelanggan() {
     } finally { setBusy(false); }
   };
 
-  const importCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  const importFile = async (file: File): Promise<BulkUploadOutcome> => {
     try {
       const rows = parseCsv(await file.text());
       const header = rows[0].map((x) => x.trim().toLowerCase());
@@ -529,18 +565,39 @@ export default function Pelanggan() {
         const index = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
         return index >= 0 ? row[index] ?? "" : "";
       };
-      const payload = rows.slice(1).map((row) => ({
-        nama: value(row, "nama", "nama pelanggan"),
-        email: value(row, "email") || null,
-        telepon: value(row, "telepon", "no hp", "no telepon", "phone") || null,
-        alamat: value(row, "alamat") || null,
-        kecamatan: value(row, "kecamatan") || null,
-      }));
+      // Kolom OPSIONAL status: nonaktif|tidak|0|false|no|n|inactive|mati → false;
+      // aktif|ya|1|true|yes|y|active → true; kosong/tak ada → jangan set (default aktif).
+      const statusNames = ["status", "aktif", "is active", "is_active", "active"];
+      const statusIndex = statusNames.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
+      const parseStatus = (raw: string): boolean | undefined => {
+        const v = raw.trim().toLowerCase();
+        if (!v) return undefined;
+        if (["nonaktif", "tidak", "0", "false", "no", "n", "inactive", "mati"].includes(v)) return false;
+        if (["aktif", "ya", "1", "true", "yes", "y", "active"].includes(v)) return true;
+        return undefined;
+      };
+      const payload = rows.slice(1).map((row) => {
+        const item: CreatePelangganInput = {
+          nama: value(row, "nama", "nama pelanggan"),
+          email: value(row, "email") || null,
+          telepon: value(row, "telepon", "no hp", "no telepon", "phone") || null,
+          alamat: value(row, "alamat") || null,
+          kecamatan: value(row, "kecamatan") || null,
+        };
+        if (statusIndex >= 0) {
+          const status = parseStatus(row[statusIndex] ?? "");
+          if (status !== undefined) item.isActive = status;
+        }
+        return item;
+      });
       const result = await bulkCreatePelanggan(payload);
-      alert(`Berhasil: ${result.success}, gagal: ${result.failures.length}`);
-      await load();
+      return {
+        success: result.success,
+        // result.failures.row = index baris data (1-based) → nomor baris CSV = index + 2 (header di baris 1).
+        failures: result.failures.map((f) => ({ row: f.row + 1, label: f.nama, message: f.message })),
+      };
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "CSV pelanggan tidak valid.");
+      throw new Error(err instanceof ApiClientError ? err.message : "Gagal membaca file. Pastikan file CSV pelanggan valid.");
     }
   };
 
@@ -613,20 +670,19 @@ export default function Pelanggan() {
                           <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p>
                         </div>
                       </button>
-                      <button onClick={() => { setShowAddMenu(false); fileRef.current?.click(); }}
+                      <button onClick={() => { setShowAddMenu(false); setShowBulk(true); }}
                         className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200"
                         style={{ color: '#1a0408' }}>
                         <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
                         <div>
                           <p style={{ color: '#000000' }}>Bulk Upload</p>
-                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV atau XLSX</p>
+                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p>
                         </div>
                       </button>
                     </div>
                   </>
                 )}
               </div>
-              <input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} />
             </div>
           </div>
         </div>
@@ -919,6 +975,27 @@ export default function Pelanggan() {
           busy={busy}
           onClose={() => setShowBulkDeleteConfirm(false)}
           onConfirm={() => void confirmBulkDelete()}
+        />
+      )}
+
+      {/* Bulk Upload */}
+      {showBulk && (
+        <BulkUploadModal
+          title="Upload Pelanggan Bulk"
+          resultLabel="pelanggan"
+          columns={["nama", "email", "telepon", "alamat", "kecamatan"]}
+          formatNote="Baris pertama file adalah header. Kolom 'nama' wajib diisi; email, telepon, alamat, dan kecamatan bersifat opsional. Terdapat kolom 'Status (opsional)': isi 'Nonaktif' untuk data nonaktif (default Aktif bila kosong). Alias yang dikenali: 'nama pelanggan' (nama), 'no hp' / 'no telepon' / 'phone' (telepon)."
+          sample={{
+            headers: ["nama", "email", "telepon", "alamat", "kecamatan", "status"],
+            rows: [
+              ["Budi Santoso", "budi.santoso@email.com", "081234567890", "Jl. Merdeka No. 10", "Sukarami", ""],
+              ["Siti Aminah", "siti.aminah@email.com", "085678901234", "Jl. Sudirman No. 25", "Ilir Barat I", "Nonaktif"],
+            ],
+          }}
+          sampleFilename="sample-pelanggan.csv"
+          onFile={importFile}
+          onDone={() => void load()}
+          onClose={() => setShowBulk(false)}
         />
       )}
     </div>

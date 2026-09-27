@@ -298,6 +298,8 @@ export default function Commerce() {
   const [orderForCourier, setOrderForCourier] = useState<PesananDTO | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState("");
 
   // Debounced search
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -358,18 +360,31 @@ export default function Commerce() {
   };
 
   const handleAssignKurir = async (kurirId: number) => {
-    if (!orderForCourier) return;
+    const targets = orderForCourier ? [orderForCourier] : selectedMenunggu;
+    if (targets.length === 0) return;
     setBusy(true);
     setListError("");
-    try {
-      const updated = await updatePengiriman(orderForCourier.noPesanan, { kurirId, statusPengiriman: "Diantar" });
-      setOrders((prev) => prev.map((o) => o.noPesanan === updated.noPesanan ? updated : o));
-      setSelectedOrder((cur) => cur && cur.noPesanan === updated.noPesanan ? updated : cur);
-      setShowCourierModal(false);
-      setOrderForCourier(null);
-    } catch (e) {
-      setListError(e instanceof ApiClientError ? e.message : "Gagal menugaskan kurir.");
-    } finally { setBusy(false); }
+    setBulkError("");
+    const gagal: string[] = [];
+    for (const t of targets) {
+      try {
+        const updated = await updatePengiriman(t.noPesanan, { kurirId, statusPengiriman: "Diantar" });
+        setOrders((prev) => prev.map((o) => o.noPesanan === updated.noPesanan ? updated : o));
+        setSelectedOrder((cur) => cur && cur.noPesanan === updated.noPesanan ? updated : cur);
+      } catch {
+        gagal.push(t.noPesanan);
+      }
+    }
+    setShowCourierModal(false);
+    setOrderForCourier(null);
+    if (targets.length > 1) {
+      setSelectedOrderIds([]);
+      await load();
+      if (gagal.length > 0) setBulkError(`Pilih Kurir: ${targets.length - gagal.length} pesanan ditugaskan, ${gagal.length} gagal (${gagal.join(", ")}).`);
+    } else if (gagal.length > 0) {
+      setListError("Gagal menugaskan kurir.");
+    }
+    setBusy(false);
   };
 
   const handleComplete = async (order: PesananDTO) => {
@@ -384,13 +399,45 @@ export default function Commerce() {
     } finally { setBusy(false); }
   };
 
+  // Bulk action: baris 'Menunggu Kurir' → Pilih Kurir; 'Diantar' → Selesaikan.
+  // Baris berstatus lain (Selesai/dll) tidak bisa dipilih (checkbox disabled).
+  const selectedMenunggu = orders.filter((o) => selectedOrderIds.includes(o.noPesanan) && o.statusPengiriman === "Menunggu Kurir");
+  const selectedDiantar = orders.filter((o) => selectedOrderIds.includes(o.noPesanan) && o.statusPengiriman === "Diantar");
+  const layakBulk = orders.filter((o) => o.statusPengiriman === "Diantar" || o.statusPengiriman === "Menunggu Kurir");
+  const allSelected = layakBulk.length > 0 && layakBulk.every((o) => selectedOrderIds.includes(o.noPesanan));
+
   const handleToggleSelect = (no: string) => {
+    if (bulkBusy) return;
     setSelectedOrderIds((prev) => prev.includes(no) ? prev.filter((x) => x !== no) : [...prev, no]);
   };
 
   const handleSelectAll = () => {
-    if (orders.length > 0 && orders.every((o) => selectedOrderIds.includes(o.noPesanan))) setSelectedOrderIds([]);
-    else setSelectedOrderIds(orders.map((o) => o.noPesanan));
+    if (bulkBusy) return;
+    if (allSelected) setSelectedOrderIds([]);
+    else setSelectedOrderIds(layakBulk.map((o) => o.noPesanan));
+  };
+
+  /** Bulk "Selesaikan" — eksekusi sekuensial memakai API yang sama dgn tombol "Selesaikan Pengiriman". */
+  const handleBulkSelesaikan = async () => {
+    const targets = selectedDiantar;
+    if (targets.length === 0 || busy || bulkBusy) return;
+    setBulkBusy(true);
+    setListError("");
+    setBulkError("");
+    const gagal: string[] = [];
+    for (const o of targets) {
+      try {
+        await updatePengiriman(o.noPesanan, { statusPengiriman: "Selesai" });
+      } catch {
+        gagal.push(o.noPesanan);
+      }
+    }
+    setSelectedOrderIds([]);
+    await load();
+    if (gagal.length > 0) {
+      setBulkError(`Bulk Selesaikan: ${targets.length - gagal.length} pesanan selesai, ${gagal.length} gagal (${gagal.join(", ")}).`);
+    }
+    setBulkBusy(false);
   };
 
   const exportData = async () => {
@@ -422,8 +469,7 @@ export default function Commerce() {
   const rangeStart = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
   const rangeEnd = Math.min(pagination.page * pagination.pageSize, pagination.total);
 
-  const selectedMenunggu = orders.filter((o) => selectedOrderIds.includes(o.noPesanan) && o.statusPengiriman === "Menunggu Kurir");
-  const selectedDiantar = orders.filter((o) => selectedOrderIds.includes(o.noPesanan) && o.statusPengiriman === "Diantar");
+
 
   return (
     <div className="flex h-screen" style={{ backgroundColor: '#fcfaff' }}>
@@ -526,6 +572,11 @@ export default function Commerce() {
               <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {listError}</p>
             </div>
           )}
+          {bulkError && (
+            <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {bulkError}</p>
+            </div>
+          )}
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             {loading ? (
@@ -537,8 +588,10 @@ export default function Commerce() {
                     <thead>
                       <tr style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
                         <th className="px-6 py-4 text-center" style={{ width: '50px' }}>
-                          <button onClick={handleSelectAll} className="flex items-center justify-center" style={{ color: '#27b446' }}>
-                            {orders.length > 0 && orders.every((o) => selectedOrderIds.includes(o.noPesanan)) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
+                          <button onClick={handleSelectAll} disabled={layakBulk.length === 0 || bulkBusy}
+                            className="flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                            style={{ color: '#27b446' }} title={allSelected ? "Batalkan semua" : "Pilih semua"}>
+                            {allSelected ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
                           </button>
                         </th>
                         <th className="px-6 py-4 text-left">
@@ -567,11 +620,15 @@ export default function Commerce() {
                       {orders.map((order, index) => {
                         const st = getStatusStyle(order.statusPengiriman ?? "Menunggu Kurir");
                         const pay = getPaymentBadge(order.metodeBayar);
+                        const layak = order.statusPengiriman === "Diantar" || order.statusPengiriman === "Menunggu Kurir";
                         return (
                           <tr key={order.noPesanan} className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                             style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
                             <td className="px-6 py-4 text-center">
-                              <button onClick={() => handleToggleSelect(order.noPesanan)} className="flex items-center justify-center" style={{ color: '#27b446' }}>
+                              <button onClick={() => handleToggleSelect(order.noPesanan)} disabled={!layak || bulkBusy}
+                                className="flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                                style={{ color: layak ? '#27b446' : '#9ca3af' }}
+                                title={layak ? "Pilih untuk aksi bulk (Pilih Kurir / Selesaikan)" : "Hanya pesanan berstatus Menunggu Kurir atau Diantar yang dapat dipilih"}>
                                 {selectedOrderIds.includes(order.noPesanan) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
                               </button>
                             </td>
@@ -692,18 +749,26 @@ export default function Commerce() {
             <span style={{ color: '#000000' }}>{selectedOrderIds.length} pesanan dipilih</span>
             <div className="h-6 w-px bg-gray-300" />
             {selectedMenunggu.length > 0 && (
-              <button onClick={() => { setOrderForCourier(null); setShowCourierModal(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90"
+              <button onClick={() => { setOrderForCourier(null); setShowCourierModal(true); }} disabled={busy || bulkBusy}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 style={{ backgroundColor: '#27b446' }}>
                 <Truck className="w-4 h-4" />
-                Pilih Kurir ({selectedMenunggu.length})
+                {bulkBusy ? "Memproses..." : `Pilih Kurir (${selectedMenunggu.length})`}
               </button>
             )}
-            <button onClick={() => setSelectedOrderIds([])}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-red-50"
+            {selectedDiantar.length > 0 && (
+              <button onClick={() => void handleBulkSelesaikan()} disabled={busy || bulkBusy}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: '#27b446' }}>
+                <CheckCircle className="w-4 h-4" />
+                {bulkBusy ? "Memproses..." : `Selesaikan (${selectedDiantar.length})`}
+              </button>
+            )}
+            <button onClick={() => setSelectedOrderIds([])} disabled={bulkBusy}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-red-50 disabled:opacity-50"
               style={{ borderColor: '#e40b18', color: '#e40b18' }}>
               <X className="w-4 h-4" />
-              Batal
+              Batal Pilih
             </button>
           </div>
         </div>
@@ -720,28 +785,13 @@ export default function Commerce() {
         />
       )}
 
-      {/* Pilih kurir modal (single atau bulk) */}
+      {/* Pilih kurir modal */}
       {showCourierModal && (
         <PilihKurirModal
           kurirs={kurirs}
           busy={busy}
           onClose={() => { setShowCourierModal(false); setOrderForCourier(null); }}
-          onAssign={async (kurirId) => {
-            setBusy(true);
-            setListError("");
-            try {
-              const targets = orderForCourier ? [orderForCourier] : orders.filter((o) => selectedOrderIds.includes(o.noPesanan) && o.statusPengiriman === "Menunggu Kurir");
-              const results = await Promise.all(targets.map((o) => updatePengiriman(o.noPesanan, { kurirId, statusPengiriman: "Diantar" })));
-              const map = new Map(results.map((r) => [r.noPesanan, r]));
-              setOrders((prev) => prev.map((o) => map.get(o.noPesanan) ?? o));
-              setSelectedOrder((cur) => (cur && map.get(cur.noPesanan)) ?? cur);
-              setShowCourierModal(false);
-              setOrderForCourier(null);
-              setSelectedOrderIds([]);
-            } catch (e) {
-              setListError(e instanceof ApiClientError ? e.message : "Gagal menugaskan kurir.");
-            } finally { setBusy(false); }
-          }}
+          onAssign={(kurirId) => void handleAssignKurir(kurirId)}
         />
       )}
     </div>
