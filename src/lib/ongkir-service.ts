@@ -186,8 +186,8 @@ export async function bulkCreateOngkir(rows: CreateOngkirInput[]): Promise<BulkO
       }
       try {
         await connection.execute(
-          `INSERT INTO ongkir_kecamatan (kode, kecamatan, ongkir, is_active) VALUES (?, ?, ?, 1)`,
-          [parsed.data.kode, parsed.data.kecamatan, parsed.data.ongkir],
+          `INSERT INTO ongkir_kecamatan (kode, kecamatan, ongkir, is_active) VALUES (?, ?, ?, ?)`,
+          [parsed.data.kode, parsed.data.kecamatan, parsed.data.ongkir, parsed.data.isActive === false ? 0 : 1],
         );
         success++;
       } catch (error) {

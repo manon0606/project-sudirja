@@ -76,3 +76,21 @@ pnpm dev        # http://localhost:3000
 
 Migrasi DB dijalankan manual via `mysql web_sudirja < db/migrations/*.sql`
 (urut sesuai timestamp). Lihat `docs/ADMIN_API.md` untuk dokumentasi API lengkap.
+
+## Bulk upload & form pesanan
+
+- Semua flow bulk memakai modal seragam `BulkUploadModal` (panel **Format File** +
+  **Unduh Sample File** + hasil `Berhasil: N` + rincian gagal per nomor baris).
+- Kolom `Status` opsional di CSV bulk: `nonaktif|tidak|0|false|no|n|inactive|mati`
+  → `is_active = 0`; kosong/aktif → aktif. Berlaku untuk ongkir, pelanggan, supplier,
+  user, produk, dan promo. Kebijakan yang sama harus dijaga di service (bulk insert
+  tidak boleh meng-hardcode `is_active = 1`).
+- Bulk konsinyasi: kolom `Satuan` **wajib** (nama satuan yang terdaftar di master
+  produk). Server menyimpan `produk_satuan_id`; SKU sama dengan satuan berbeda
+  diperbolehkan (satu konsinyasi bisa punya beberapa baris SKU sama).
+- Form Pelanggan: `Kecamatan` = select dari data Pemetaan & Ongkir (bukan input teks).
+- Form Buat Pesanan Manual (Pesanan): identitas baris = produk + satuan, jadi produk
+  sama dengan satuan berbeda menjadi dua baris terpisah; satuan yang sudah dipakai
+  baris lain ditandai `(terpakai)` dan tidak bisa dipilih ulang.
+- Commerce: search berdasarkan nama pelanggan; bulk `Pilih Kurir (N)` (status
+  *Menunggu Kurir*) dan `Selesaikan (N)` (status *Diantar*).

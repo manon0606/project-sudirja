@@ -666,34 +666,53 @@ export default function Konsinyasi() {
         const idx = names.map((n) => header.indexOf(n)).find((i) => i >= 0) ?? -1;
         return idx >= 0 ? row[idx] ?? "" : "";
       };
-      // Format: supplier kode/nama, tanggal, sku, nama produk, qty, harga beli, harga jual
+      // Format: supplier kode/nama, tanggal, sku, nama produk, satuan, qty, harga beli, harga jual
       const supplierCodeMap = new Map(suppliers.map((s) => [s.kode, s.id]));
       const supplierNameMap = new Map(suppliers.map((s) => [s.nama.toLowerCase(), s.id]));
-      const grouped = new Map<number, { tanggal: string; supplierId: number; firstRow: number; rows: Array<{ sku: string; nama: string; qty: number; hargaBeli: number; hargaJual: number }> }>();
+      // Resolusi SKU → produk master (untuk produkSatuanId sesuai nama satuan).
+      const produkCache = new Map<string, ProdukDTO | null>();
+      const findProduk = async (sku: string): Promise<ProdukDTO | null> => {
+        const key = sku.trim().toLowerCase();
+        if (produkCache.has(key)) return produkCache.get(key) ?? null;
+        let found: ProdukDTO | null = null;
+        try {
+          const res = await listProduk({ search: sku.trim(), pageSize: 10 });
+          found = res.items.find((p) => p.sku.toLowerCase() === key) ?? null;
+        } catch { found = null; }
+        produkCache.set(key, found);
+        return found;
+      };
+      const grouped = new Map<number, { tanggal: string; supplierId: number; firstRow: number; rows: Array<{ produkId: number | null; sku: string; nama: string; produkSatuanId: number; qty: number; hargaBeli: number; hargaJual: number }> }>();
       const failures: BulkUploadFailure[] = [];
 
-      rows.slice(1).forEach((row, idx) => {
+      for (let idx = 0; idx < rows.length - 1; idx++) {
+        const row = rows[idx + 1];
         const supplierRef = value(row, "supplier", "supplier kode", "kode supplier", "vendor");
-        let supplierId = supplierCodeMap.get(supplierRef) ?? supplierNameMap.get(supplierRef.toLowerCase());
-        if (!supplierId) { failures.push({ row: idx + 2, message: `supplier tidak dikenal (${supplierRef})` }); return; }
+        const supplierId = supplierCodeMap.get(supplierRef) ?? supplierNameMap.get(supplierRef.toLowerCase());
+        if (!supplierId) { failures.push({ row: idx + 2, message: `supplier tidak dikenal (${supplierRef})` }); continue; }
         const tanggal = value(row, "tanggal") || format(new Date(), "yyyy-MM-dd");
         const sku = value(row, "sku", "kode produk");
         const nama = value(row, "nama produk", "nama", "produk");
+        const satuanNama = value(row, "satuan").trim();
         const qty = Number(value(row, "qty", "qty konsinyasi")) || 0;
         const hargaBeli = Number(value(row, "harga beli", "harga_beli")) || 0;
         const hargaJual = Number(value(row, "harga jual", "harga_jual")) || 0;
-        if (!sku || !nama || qty <= 0) { failures.push({ row: idx + 2, message: "data produk/qty tidak valid" }); return; }
+        if (!sku || !nama || !satuanNama || qty <= 0) { failures.push({ row: idx + 2, message: "data produk/satuan/qty tidak valid" }); continue; }
+        // SKU sama dengan satuan berbeda = item terpisah (produkSatuanId berbeda).
+        const produk = await findProduk(sku);
+        const opt = produk?.satuan.find((s) => s.satuanNama.trim().toLowerCase() === satuanNama.toLowerCase());
+        if (!produk || !opt) { failures.push({ row: idx + 2, message: `satuan "${satuanNama}" tidak dikenal untuk SKU ${sku}` }); continue; }
         const g = grouped.get(supplierId) ?? { tanggal, supplierId, firstRow: idx + 2, rows: [] };
         if (!grouped.has(supplierId)) { g.tanggal = tanggal; grouped.set(supplierId, g); }
-        g.rows.push({ sku, nama, qty, hargaBeli, hargaJual });
-      });
+        g.rows.push({ produkId: produk.id, sku, nama, produkSatuanId: opt.id, qty, hargaBeli, hargaJual });
+      }
 
       let success = 0;
       for (const [supplierId, g] of grouped) {
         try {
           await createKonsinyasi({
             tanggal: `${g.tanggal}T00:00:00`, supplierId,
-            items: g.rows.map((r) => ({ produkId: null, sku: r.sku, namaProduk: r.nama, qtyKonsinyasi: r.qty, hargaBeli: r.hargaBeli, hargaJual: r.hargaJual })),
+            items: g.rows.map((r) => ({ produkId: r.produkId, sku: r.sku, namaProduk: r.nama, produkSatuanId: r.produkSatuanId, qtyKonsinyasi: r.qty, hargaBeli: r.hargaBeli, hargaJual: r.hargaJual })),
           });
           success++;
         } catch { failures.push({ row: g.firstRow, message: `konsinyasi supplier ${supplierId}: gagal` }); }
@@ -1001,13 +1020,13 @@ export default function Konsinyasi() {
         <BulkUploadModal
           title="Upload Konsinyasi Bulk"
           resultLabel="konsinyasi"
-          columns={["Supplier", "Tanggal", "SKU", "Nama Produk", "Qty", "Harga Beli", "Harga Jual"]}
-          formatNote="Supplier bisa kode (SUP-001) atau nama. Tanggal format YYYY-MM-DD (opsional, default hari ini). Qty minimal 1. Setiap baris = satu item; baris dengan supplier+tanggal sama digabung jadi satu konsinyasi."
+          columns={["Supplier", "Tanggal", "SKU", "Nama Produk", "Satuan", "Qty", "Harga Beli", "Harga Jual"]}
+          formatNote="Supplier bisa kode (SUP-001) atau nama. Tanggal format YYYY-MM-DD (opsional, default hari ini). Satuan wajib diisi dengan nama satuan produk yang terdaftar di master produk (mis. Dus, Pcs) — SKU sama dengan satuan berbeda diperbolehkan. Qty minimal 1. Setiap baris = satu item; baris dengan supplier+tanggal sama digabung jadi satu konsinyasi."
           sample={{
-            headers: ["Supplier", "Tanggal", "SKU", "Nama Produk", "Qty", "Harga Beli", "Harga Jual"],
+            headers: ["Supplier", "Tanggal", "SKU", "Nama Produk", "Satuan", "Qty", "Harga Beli", "Harga Jual"],
             rows: [
-              ["SUP-001", "2026-09-27", "IND-001", "Indomie", "10", "20000", "24000"],
-              ["SUP-001", "2026-09-27", "IND-002", "Teh Botol", "5", "3000", "5000"],
+              ["SUP-001", "2026-09-27", "IND-001", "Indomie", "Dus", "10", "20000", "24000"],
+              ["SUP-001", "2026-09-27", "IND-002", "Teh Botol", "Pcs", "5", "3000", "5000"],
             ],
           }}
           sampleFilename="sample-konsinyasi.csv"

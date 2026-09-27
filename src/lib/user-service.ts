@@ -438,13 +438,13 @@ export async function bulkCreateUsers(rows: CreateUserInput[]): Promise<BulkUser
         const passwordHash = bcrypt.hashSync(data.password, BCRYPT_COST);
         const [adminResult] = await conn.query<ResultSetHeader>(
           `INSERT INTO admins (username, email, password_hash, full_name, role, is_active)
-           VALUES (?, ?, ?, ?, 'superadmin', 1)`,
-          [data.username, data.email ?? `${data.username}@sudirja.local`, passwordHash, data.fullName],
+           VALUES (?, ?, ?, ?, 'superadmin', ?)`,
+          [data.username, data.email ?? `${data.username}@sudirja.local`, passwordHash, data.fullName, data.isActive === false ? 0 : 1],
         );
         await conn.query(
           `INSERT INTO users (admin_id, username, full_name, role, phone, email, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, 1)`,
-          [adminResult.insertId, data.username, data.fullName, data.role, data.phone ?? null, data.email ?? null],
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [adminResult.insertId, data.username, data.fullName, data.role, data.phone ?? null, data.email ?? null, data.isActive === false ? 0 : 1],
         );
         success++;
       } catch (error) {

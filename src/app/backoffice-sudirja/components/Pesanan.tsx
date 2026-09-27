@@ -1372,69 +1372,87 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
     : "Diskon";
   const total = subtotal - discountAmount;
 
+  // Identitas baris = produk + satuan. Produk sama dgn satuan berbeda
+  // (mis. Indomie rebus — Dus lalu Pcs) tetap jadi 2 baris terpisah.
+  const itemKey = (produkId: number | null, produkSatuanId: number | null) =>
+    `${produkId ?? "x"}||${produkSatuanId ?? "x"}`;
+
   const handleAddProduct = (product: PesananProdukOption) => {
-    const existingItem = selectedItems.find(item => item.produkId === product.produkId);
-    if (existingItem) {
-      // Increase quantity if already exists
-      setSelectedItems(items =>
-        items.map(item =>
-          item.produkId === product.produkId
+    setSelectedItems(items => {
+      const barisProdukIni = items.filter(item => item.produkId === product.produkId);
+      const satuanTerpakai = barisProdukIni.map(item => item.produkSatuanId);
+      // Satuan default = opsi pertama yang belum dipakai baris lain utk produk ini.
+      // Contoh: Indomie sudah ada dgn satuan Dus → klik lagi membuat baris baru dgn Pcs.
+      const defSat = product.satuan.find(o => !satuanTerpakai.includes(o.produkSatuanId))
+        ?? product.satuan[0]
+        ?? null;
+      const defSatuanId = defSat ? defSat.produkSatuanId : null;
+      const existing = items.find(
+        item => item.produkId === product.produkId && item.produkSatuanId === defSatuanId
+      );
+      if (existing) {
+        // Produk + satuan identik → merge (qty naik), bukan baris ganda.
+        const key = itemKey(existing.produkId, existing.produkSatuanId);
+        return items.map(item =>
+          itemKey(item.produkId, item.produkSatuanId) === key
             ? { ...item, quantity: item.quantity + 1 }
             : item
-        )
-      );
-    } else {
-      // Add new item — default satuan pertama (harga terkecil).
-      const defSat = product.satuan[0] ?? null;
-      setSelectedItems([...selectedItems, {
+        );
+      }
+      // Produk sama + satuan berbeda → baris baru (qty & harga sendiri).
+      return [...items, {
         produkId: product.produkId,
-        produkSatuanId: defSat ? defSat.produkSatuanId : null,
+        produkSatuanId: defSatuanId,
         satuanNama: defSat ? defSat.satuanNama : null,
         satuanOptions: product.satuan,
         name: product.nama,
         price: defSat ? defSat.harga : product.harga,
         quantity: 1
-      }]);
-    }
+      }];
+    });
     setSearchQuery("");
     setShowSearchResults(false);
   };
 
-  const handleChangeSatuan = (produkId: number | null, psId: number) => {
-    setSelectedItems(items =>
-      items.map(item => {
-        if (item.produkId !== produkId) return item;
-        const opt = item.satuanOptions.find(o => o.produkSatuanId === psId);
-        return {
-          ...item,
-          produkSatuanId: psId,
-          satuanNama: opt ? opt.satuanNama : item.satuanNama,
-          price: opt ? opt.harga : item.price,
-        };
-      })
-    );
-  };
-
-  const handleIncreaseQuantity = (produkId: number | null) => {
-    setSelectedItems(items =>
-      items.map(item =>
-        item.produkId === produkId ? { ...item, quantity: item.quantity + 1 } : item
-      )
-    );
-  };
-
-  const handleDecreaseQuantity = (produkId: number | null) => {
-    setSelectedItems(items =>
-      items.map(item =>
-        item.produkId === produkId && item.quantity > 1
-          ? { ...item, quantity: item.quantity - 1 }
+  const handleChangeSatuan = (index: number, psId: number) => {
+    setSelectedItems(items => {
+      const target = items[index];
+      if (!target) return items;
+      // Satuan itu sudah dipakai baris lain utk produk yang sama → duplikat murni, tolak.
+      const dipakaiBarisLain = items.some((item, i) =>
+        i !== index && item.produkId === target.produkId && item.produkSatuanId === psId
+      );
+      if (dipakaiBarisLain) return items;
+      const opt = target.satuanOptions.find(o => o.produkSatuanId === psId);
+      return items.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              produkSatuanId: psId,
+              satuanNama: opt ? opt.satuanNama : item.satuanNama,
+              price: opt ? opt.harga : item.price,
+            }
           : item
+      );
+    });
+  };
+
+  const handleIncreaseQuantity = (index: number) => {
+    setSelectedItems(items =>
+      items.map((item, i) => (i === index ? { ...item, quantity: item.quantity + 1 } : item))
+    );
+  };
+
+  const handleDecreaseQuantity = (index: number) => {
+    setSelectedItems(items =>
+      items.map((item, i) =>
+        i === index && item.quantity > 1 ? { ...item, quantity: item.quantity - 1 } : item
       )
     );
   };
 
-  const handleRemoveItem = (produkId: number | null) => {
-    setSelectedItems(items => items.filter(item => item.produkId !== produkId));
+  const handleRemoveItem = (index: number) => {
+    setSelectedItems(items => items.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async () => {
@@ -1681,28 +1699,40 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
                 </label>
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                   <div className="divide-y divide-gray-200">
-                    {selectedItems.map(item => (
-                      <div key={item.produkId ?? item.name} className="p-4 flex items-center gap-4">
-                        <div className="flex-1">
+                    {selectedItems.map((item, index) => (
+                      <div key={itemKey(item.produkId, item.produkSatuanId)} className="py-4 px-4 flex items-center gap-4">
+                        <div className="flex-1 space-y-2">
                           <p style={{ color: '#1a0408' }}>{item.name}</p>
                           {item.satuanOptions.length > 1 ? (
-                            <div className="relative inline-block mt-1">
+                            <div className="relative inline-block">
                               <select
                                 value={String(item.produkSatuanId ?? "")}
-                                onChange={(e) => handleChangeSatuan(item.produkId, Number(e.target.value))}
+                                onChange={(e) => handleChangeSatuan(index, Number(e.target.value))}
                                 className="appearance-none pl-2 pr-7 py-0.5 rounded border border-gray-300 text-xs focus:outline-none focus:ring-2 cursor-pointer"
                                 style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
                               >
-                                {item.satuanOptions.map(o => (
-                                  <option key={o.produkSatuanId} value={o.produkSatuanId}>{o.satuanNama}</option>
-                                ))}
+                                {item.satuanOptions.map(o => {
+                                  // Satuan yang sudah dipakai baris lain utk produk ini
+                                  // = duplikat murni → tandai terpakai (tidak bisa dipilih).
+                                  const terpakai = selectedItems.some((other, i) =>
+                                    i !== index && other.produkId === item.produkId && other.produkSatuanId === o.produkSatuanId
+                                  );
+                                  return (
+                                    <option key={o.produkSatuanId} value={o.produkSatuanId} disabled={terpakai}
+                                      style={{ color: terpakai ? '#9ca3af' : '#1a0408' }}>
+                                      {o.satuanNama}{terpakai ? " (terpakai)" : ""}
+                                    </option>
+                                  );
+                                })}
                               </select>
                               <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: '#1a0408', opacity: 0.5 }} />
                             </div>
                           ) : item.satuanNama ? (
-                            <span className="inline-flex mt-1 px-2 py-0.5 rounded text-xs" style={{ backgroundColor: '#f3f4f6', color: '#1a0408' }}>
-                              {item.satuanNama}
-                            </span>
+                            <div>
+                              <span className="inline-flex px-2 py-0.5 rounded text-xs" style={{ backgroundColor: '#f3f4f6', color: '#1a0408' }}>
+                                {item.satuanNama}
+                              </span>
+                            </div>
                           ) : null}
                           <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
                             Rp {item.price.toLocaleString('id-ID')} × {item.quantity}
@@ -1712,7 +1742,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
                         {/* Quantity Controls */}
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleDecreaseQuantity(item.produkId)}
+                            onClick={() => handleDecreaseQuantity(index)}
                             className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-gray-50"
                             style={{ borderColor: '#e5e7eb', color: '#1a0408' }}
                             disabled={item.quantity <= 1}
@@ -1723,7 +1753,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
                             {item.quantity}
                           </span>
                           <button
-                            onClick={() => handleIncreaseQuantity(item.produkId)}
+                            onClick={() => handleIncreaseQuantity(index)}
                             className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-gray-50"
                             style={{ borderColor: '#27b446', color: '#27b446' }}
                           >
@@ -1740,7 +1770,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
 
                         {/* Remove Button */}
                         <button
-                          onClick={() => handleRemoveItem(item.produkId)}
+                          onClick={() => handleRemoveItem(index)}
                           className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-red-50"
                           style={{ borderColor: '#e40b18', color: '#e40b18' }}
                         >
