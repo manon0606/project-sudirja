@@ -2,14 +2,16 @@
 import { useCallback, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import DatePicker from "./DatePicker";
+import Modal from "./Modal";
 import { ApiClientError } from "@/lib/api-client";
 import { generateLaporan } from "@/lib/laporan-api";
 import type { LaporanDTO, LaporanTipe } from "@/lib/laporan-types";
+import { exportLaporanPdf } from "./laporan-pdf";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { fmtWib } from "@/lib/date-utils";
 import {
-  Download, FileText, Calendar, ChevronDown, TrendingUp, TrendingDown, Wallet, RefreshCw
+  Download, FileText, Calendar, ChevronDown, TrendingUp, TrendingDown, Wallet, RefreshCw, X
 } from "lucide-react";
 
 type Tab = "summary" | "penjualan" | "pembelian" | "konsinyasi" | "cash";
@@ -27,42 +29,6 @@ function Card({ label, value, color = '#1a0408', icon }: { label: string; value:
   );
 }
 
-function exportReportCsv(report: LaporanDTO) {
-  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines: string[] = [];
-  lines.push(["LAPORAN KEUANGAN", report.id, report.tipe, format(new Date(report.periodeMulai), "dd MMM yyyy", { locale: localeId }), format(new Date(report.periodeAkhir), "dd MMM yyyy", { locale: localeId })].map(esc).join(","));
-  lines.push([] as unknown as string);
-  lines.push(["RINGKASAN"].join(""));
-  lines.push(["Total Penjualan Offline", report.summary.totalPenjualanOffline].map(esc).join(","));
-  lines.push(["Total Penjualan Online", report.summary.totalPenjualanOnline].map(esc).join(","));
-  lines.push(["Total Penjualan", report.summary.totalPenjualan].map(esc).join(","));
-  lines.push(["Total Cash In", report.summary.totalCashIn].map(esc).join(","));
-  lines.push(["Total PEMASUKAN", report.summary.totalPemasukan].map(esc).join(","));
-  lines.push(["Total Pembelian", report.summary.totalPembelian].map(esc).join(","));
-  lines.push(["Total Konsinyasi Dibayar", report.summary.totalKonsinyasiDibayar].map(esc).join(","));
-  lines.push(["Total Cash Out", report.summary.totalCashOut].map(esc).join(","));
-  lines.push(["Total PENGELUARAN", report.summary.totalPengeluaran].map(esc).join(","));
-  lines.push(["LABA BERSIH", report.summary.labaBersih].map(esc).join(","));
-  lines.push("", "PENJUALAN");
-  lines.push(["No", "Tanggal", "Asal", "Kasir/Pelanggan", "Metode", "Total"].map(esc).join(","));
-  report.rincian.penjualan.forEach((r, i) => lines.push([i + 1, r.tanggal, r.asal, r.asal === "commerce" ? r.namaPelanggan ?? "" : r.kasir, r.metodeBayar, r.total].map(esc).join(",")));
-  lines.push("", "PEMBELIAN");
-  lines.push(["No", "Tanggal", "Supplier", "Grand Total"].map(esc).join(","));
-  report.rincian.pembelian.forEach((r, i) => lines.push([i + 1, r.tanggal, r.supplier, r.grandTotal].map(esc).join(",")));
-  lines.push("", "KONSINYASI");
-  lines.push(["No", "Tanggal", "Supplier", "Nilai", "Dibayar", "Dikembalikan"].map(esc).join(","));
-  report.rincian.konsinyasi.forEach((r, i) => lines.push([i + 1, r.tanggal, r.supplier, r.totalNilaiKonsinyasi, r.totalDibayar, r.totalDikembalikan].map(esc).join(",")));
-  lines.push("", "CASH FLOW");
-  lines.push(["Tanggal", "Pesanan", "Tipe", "Jumlah", "Keterangan"].map(esc).join(","));
-  report.rincian.cashFlow.forEach((r) => lines.push([r.tanggal, r.noPesanan, r.tipe, r.jumlah, r.keterangan].map(esc).join(",")));
-  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `laporan-${report.id}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
 export default function Laporan() {
   const [reportType, setReportType] = useState<LaporanTipe>("daily");
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -74,6 +40,9 @@ export default function Laporan() {
   const [tab, setTab] = useState<Tab>("summary");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const handleGenerate = useCallback(async () => {
     setLoading(true);
@@ -102,6 +71,7 @@ export default function Laporan() {
       const result = await generateLaporan({ tipe: reportType, dateFrom, dateTo });
       setReport(result);
       setTab("summary");
+      setFormOpen(false);
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : "Gagal membuat laporan.");
     } finally {
@@ -109,7 +79,25 @@ export default function Laporan() {
     }
   }, [reportType, selectedDate, selectedMonth, yearlyYear, customDateFrom, customDateTo]);
 
-  const inputStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as any;
+  const handleExport = useCallback(async () => {
+    if (!report) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      await exportLaporanPdf(report);
+    } catch {
+      setExportError("Gagal membuat file PDF. Silakan coba lagi.");
+    } finally {
+      setExporting(false);
+    }
+  }, [report]);
+
+  const openForm = useCallback(() => {
+    setError("");
+    setFormOpen(true);
+  }, []);
+
+  const inputStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as React.CSSProperties;
 
   return (
     <div className="flex h-screen" style={{ backgroundColor: '#fcfaff' }}>
@@ -125,84 +113,21 @@ export default function Laporan() {
                 Pantau semua pemasukan & pengeluaran secara real-time dari data transaksi
               </p>
             </div>
-            {report && (
-              <button onClick={() => exportReportCsv(report)}
-                className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all hover:opacity-90"
-                style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
-                <Download className="w-5 h-5" /> Export CSV
+            <div className="flex items-center gap-3">
+              <button onClick={openForm}
+                className="flex items-center gap-2 px-5 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#27b446' }}>
+                <FileText className="w-5 h-5" /> Buat Laporan
               </button>
-            )}
-          </div>
-        </div>
-
-        {/* Form periode */}
-        <div className="bg-white border-b border-gray-200 px-8 py-4">
-          <div className="flex flex-wrap items-end gap-4">
-            <div>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tipe Laporan</span>
-              <div className="relative">
-                <select value={reportType} onChange={(e) => setReportType(e.target.value as LaporanTipe)}
-                  className="appearance-none pl-4 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
-                  style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}>
-                  <option value="daily">Harian</option>
-                  <option value="monthly">Bulanan</option>
-                  <option value="yearly">Tahunan</option>
-                  <option value="custom">Custom</option>
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
-              </div>
+              {report && (
+                <button onClick={() => void handleExport()} disabled={exporting}
+                  className="flex items-center gap-2 px-5 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                  style={{ backgroundColor: '#27b446' }}>
+                  <Download className="w-5 h-5" /> {exporting ? "Membuat PDF..." : "Export PDF"}
+                </button>
+              )}
             </div>
-
-            {reportType === "daily" && (
-              <div>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal</span>
-                <DatePicker value={selectedDate} onChange={(v) => setSelectedDate(v)}
-                  className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-              </div>
-            )}
-            {reportType === "monthly" && (
-              <div>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Bulan</span>
-                <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-              </div>
-            )}
-            {reportType === "yearly" && (
-              <div>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tahun</span>
-                <input type="number" value={yearlyYear} onChange={(e) => setYearlyYear(e.target.value)}
-                  className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 w-28" style={inputStyle} />
-              </div>
-            )}
-            {reportType === "custom" && (
-              <>
-                <div>
-                  <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Dari</span>
-                  <DatePicker value={customDateFrom} max={customDateTo || undefined}
-                    onChange={(v) => { setCustomDateFrom(v); if (customDateTo && v && v > customDateTo) setCustomDateTo(""); }}
-                    className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-                </div>
-                <div>
-                  <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Sampai</span>
-                  <DatePicker value={customDateTo} min={customDateFrom || undefined}
-                    onChange={(v) => { setCustomDateTo(v); if (customDateFrom && v && v < customDateFrom) setCustomDateFrom(""); }}
-                    className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-                </div>
-              </>
-            )}
-
-            <button onClick={() => void handleGenerate()} disabled={loading}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: '#27b446' }}>
-              {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
-              {loading ? "Memproses..." : "Buat Laporan"}
-            </button>
           </div>
-          {error && (
-            <div className="mt-3 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
-              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
-            </div>
-          )}
         </div>
 
         {/* Content */}
@@ -216,7 +141,7 @@ export default function Laporan() {
                 <div>
                   <p className="text-lg" style={{ color: '#000000' }}>Belum ada laporan</p>
                   <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
-                    Pilih periode lalu klik &quot;Buat Laporan&quot; untuk melihat laporan real-time.
+                    Klik &quot;Buat Laporan&quot; untuk membuat laporan baru dari data transaksi real-time.
                   </p>
                 </div>
               </div>
@@ -422,6 +347,125 @@ export default function Laporan() {
           )}
         </div>
       </div>
+
+      {/* Buat Laporan Modal */}
+      {formOpen && (
+        <Modal onClose={() => setFormOpen(false)} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h2 style={{ color: '#000000' }}>Buat Laporan</h2>
+            <button onClick={() => setFormOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="px-6 py-4 space-y-4 max-h-[65vh] overflow-y-auto">
+            {/* Error banner — tampil di dalam modal, di atas isi modal */}
+            {error && (
+              <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                <p className="text-sm">⚠ {error}</p>
+              </div>
+            )}
+
+            <div>
+              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tipe Laporan</span>
+              <div className="relative">
+                <select value={reportType} onChange={(e) => setReportType(e.target.value as LaporanTipe)}
+                  className="appearance-none w-full pl-4 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
+                  style={inputStyle}>
+                  <option value="daily">Harian</option>
+                  <option value="monthly">Bulanan</option>
+                  <option value="yearly">Tahunan</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
+              </div>
+            </div>
+
+            {reportType === "daily" && (
+              <div>
+                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal</span>
+                <DatePicker value={selectedDate} onChange={(v) => setSelectedDate(v)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
+              </div>
+            )}
+            {reportType === "monthly" && (
+              <div>
+                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Bulan</span>
+                <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
+              </div>
+            )}
+            {reportType === "yearly" && (
+              <div>
+                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tahun</span>
+                <input type="number" value={yearlyYear} onChange={(e) => setYearlyYear(e.target.value)}
+                  className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 w-28" style={inputStyle} />
+              </div>
+            )}
+            {reportType === "custom" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Dari</span>
+                  <DatePicker value={customDateFrom} max={customDateTo || undefined}
+                    onChange={(v) => { setCustomDateFrom(v); if (customDateTo && v && v > customDateTo) setCustomDateTo(""); }}
+                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
+                </div>
+                <div>
+                  <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Sampai</span>
+                  <DatePicker value={customDateTo} min={customDateFrom || undefined}
+                    onChange={(v) => { setCustomDateTo(v); if (customDateFrom && v && v < customDateFrom) setCustomDateFrom(""); }}
+                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+            <button
+              onClick={() => setFormOpen(false)}
+              className="flex-1 py-3 rounded-lg border transition-colors"
+              style={{ borderColor: '#e40b18', color: '#e40b18' }}
+            >
+              Batal
+            </button>
+            <button
+              onClick={() => void handleGenerate()}
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ backgroundColor: '#27b446' }}
+            >
+              {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+              {loading ? "Memproses..." : "Buat Laporan"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Export Error Modal */}
+      {exportError && (
+        <Modal onClose={() => setExportError("")} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h2 style={{ color: '#000000' }}>Export PDF</h2>
+            <button onClick={() => setExportError("")} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="px-6 py-4">
+            <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+              <p className="text-sm">⚠ {exportError}</p>
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+            <button
+              onClick={() => setExportError("")}
+              className="flex-1 py-3 rounded-lg border transition-colors"
+              style={{ borderColor: '#e40b18', color: '#e40b18' }}
+            >
+              Tutup
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -783,7 +783,7 @@ function OrderDetailModal({ order, onClose, onRetur }: OrderDetailModalProps) {
           {order.status !== "Dibatalkan" && order.status !== "Dikembalikan" && (
             <button
               onClick={onRetur}
-              className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-colors hover:bg-orange-50"
+              className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-colors hover:bg-green-50"
               style={{ borderColor: '#27b446', color: '#27b446' }}
             >
               <RotateCcw className="w-4 h-4" />
@@ -793,7 +793,7 @@ function OrderDetailModal({ order, onClose, onRetur }: OrderDetailModalProps) {
           <div className="flex-1" />
           <button
             onClick={onClose}
-            className="px-6 py-3 rounded-lg border-2 transition-colors"
+            className="px-6 py-3 rounded-lg border-2 transition-colors hover:bg-red-50"
             style={{ borderColor: '#e40b18', color: '#e40b18' }}
           >
             Tutup
@@ -906,6 +906,11 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-6 py-5">
+          {submitError && (
+            <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {submitError}</p>
+            </div>
+          )}
 
           {/* ── STEP 1 ── */}
           {step === 1 && (
@@ -1180,7 +1185,7 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
           {step === 1 ? (
             <>
               <button onClick={onClose}
-                className="flex-1 py-3 rounded-lg border-2 transition-colors"
+                className="flex-1 py-3 rounded-lg border-2 transition-colors hover:bg-red-50"
                 style={{ borderColor: '#e40b18', color: '#e40b18' }}>
                 Batalkan
               </button>
@@ -1195,7 +1200,7 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
           ) : step === 2 ? (
             <>
               <button onClick={() => setStep(1)}
-                className="flex-1 py-3 rounded-lg border-2 transition-colors"
+                className="flex-1 py-3 rounded-lg border-2 transition-colors hover:bg-red-50"
                 style={{ borderColor: '#e40b18', color: '#e40b18' }}>
                 Kembali
               </button>
@@ -1210,7 +1215,7 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
           ) : (
             <>
               <button onClick={() => setStep(2)}
-                className="flex-1 py-3 rounded-lg border-2 transition-colors"
+                className="flex-1 py-3 rounded-lg border-2 transition-colors hover:bg-red-50"
                 style={{ borderColor: '#e40b18', color: '#e40b18' }}>
                 Kembali
               </button>
@@ -1225,11 +1230,6 @@ function ReturnModal({ order, onClose, onSubmit }: ReturnModalProps) {
             </>
           )}
         </div>
-        {submitError && (
-          <div className="px-6 py-3 border-t border-gray-200">
-            <p className="text-sm" style={{ color: '#e40b18' }}>⚠ {submitError}</p>
-          </div>
-        )}
     </Modal>
   );
 }
@@ -1493,6 +1493,11 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
         {/* Content */}
         <div className="overflow-y-auto max-h-[calc(90vh-160px)] px-6 py-4">
           <div className="space-y-6">
+            {submitError && (
+              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {submitError}</p>
+              </div>
+            )}
             {/* Tipe Pesanan */}
             <div>
               <label className="block mb-2" style={{ color: '#000000' }}>
@@ -1887,7 +1892,7 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors"
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
             style={{
               borderColor: '#e40b18',
               color: '#e40b18'
@@ -1904,11 +1909,6 @@ function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
             {submitting ? "Menyimpan..." : "Buat Pesanan"}
           </button>
         </div>
-        {submitError && (
-          <div className="px-6 py-3 border-t border-gray-200">
-            <p className="text-sm" style={{ color: '#e40b18' }}>⚠ {submitError}</p>
-          </div>
-        )}
 
       {/* Receipt popup — rendered above CreateOrderModal */}
       <ReceiptModal

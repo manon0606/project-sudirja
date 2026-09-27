@@ -336,25 +336,19 @@ export default function Produk() {
   };
 
   const handleStatusChange = async (sku: string, status: "active" | "inactive") => {
-    try {
-      const updated = await updateProdukStatus(sku, status);
-      // Perbarui produk yang sedang dibuka (detail modal) dengan hasil server
-      // agar status (dan data lainnya) langsung tampil tanpa menutup popup.
-      setSelectedProduct((prev) => (prev && prev.sku === sku ? updated : prev));
-      await load();
-    } catch (err) {
-      setListError(err instanceof ApiClientError ? err.message : "Gagal mengubah status produk.");
-    }
+    // Lemparkan error ke modal detail (ditampilkan inline), bukan ke banner halaman.
+    const updated = await updateProdukStatus(sku, status);
+    // Perbarui produk yang sedang dibuka (detail modal) dengan hasil server
+    // agar status (dan data lainnya) langsung tampil tanpa menutup popup.
+    setSelectedProduct((prev) => (prev && prev.sku === sku ? updated : prev));
+    await load();
   };
 
   const handleDeleteProduct = async (sku: string) => {
-    try {
-      await deleteProduk(sku);
-      setDeletingProduct(null);
-      await load();
-    } catch (err) {
-      setListError(err instanceof ApiClientError ? err.message : "Gagal menghapus produk.");
-    }
+    // Error ditangkap & ditampilkan di dalam modal konfirmasi hapus.
+    await deleteProduk(sku);
+    setDeletingProduct(null);
+    await load();
   };
 
   // Export seluruh data produk (semua halaman) ke CSV — detail per satuan.
@@ -560,10 +554,10 @@ export default function Produk() {
                 </button>
                 <button
                   onClick={() => setSelectedIds([])}
-                  className="px-4 py-2 rounded-lg border transition-colors"
+                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-red-50"
                   style={{
-                    borderColor: '#1a0408',
-                    color: '#1a0408'
+                    borderColor: '#e40b18',
+                    color: '#e40b18'
                   }}
                 >
                   Batal
@@ -1946,10 +1940,10 @@ function DeleteConfirmModal({ product, onClose, onConfirm }: DeleteConfirmModalP
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors"
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
             style={{
-              borderColor: '#1a0408',
-              color: '#1a0408'
+              borderColor: '#e40b18',
+              color: '#e40b18'
             }}
           >
             Batal

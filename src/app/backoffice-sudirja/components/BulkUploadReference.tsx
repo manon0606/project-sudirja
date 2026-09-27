@@ -269,6 +269,11 @@ export default function BulkUploadReferenceModal({ kind, onClose, onDone }: Bulk
 
         {/* Content */}
         <div className="px-6 py-6">
+          {error && (
+            <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+            </div>
+          )}
           {/* Download Template */}
           <div className="mb-6 p-4 rounded-lg border-2 border-dashed" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
             <div className="flex items-start gap-3">
@@ -332,9 +337,6 @@ export default function BulkUploadReferenceModal({ kind, onClose, onDone }: Bulk
                 )}
               </div>
             </button>
-            {error && (
-              <p className="text-sm mt-2" style={{ color: '#e40b18' }}>{error}</p>
-            )}
           </div>
 
           {/* Result */}
@@ -373,7 +375,7 @@ export default function BulkUploadReferenceModal({ kind, onClose, onDone }: Bulk
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors"
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
             style={{
               borderColor: '#e40b18',
               color: '#e40b18'

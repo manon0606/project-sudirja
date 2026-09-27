@@ -62,7 +62,6 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
   const [supplierId, setSupplierId] = useState("");
   const [catatan, setCatatan] = useState("");
   const [items, setItems] = useState<DraftItem[]>([]);
-  const [satuanErrors, setSatuanErrors] = useState<Record<number, string>>({});
   const [searchQ, setSearchQ] = useState("");
   const [results, setResults] = useState<ProdukDTO[]>([]);
   const [showResults, setShowResults] = useState(false);
@@ -95,6 +94,23 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
     return () => clearTimeout(t);
   }, [items.length]);
 
+  // Konflik sku + satuan antar baris dihitung ulang dari `items` setiap render
+  // (derived, bukan snapshot per-baris) — error otomatis hilang saat baris
+  // ditukar/diubah/dihapus sehingga submit tidak pernah terkunci oleh error basi.
+  const satuanErrors = useMemo(() => {
+    const errs: Record<number, string> = {};
+    const firstIdxByKey = new Map<string, number>();
+    items.forEach((it, idx) => {
+      if (!it.produkSatuanId) return;
+      const key = `${it.sku}||${it.produkSatuanId}`;
+      const first = firstIdxByKey.get(key);
+      if (first === undefined) { firstIdxByKey.set(key, idx); return; }
+      const opt = it.satuanOptions.find((o) => o.produkSatuanId === it.produkSatuanId);
+      errs[idx] = `Satuan "${opt?.satuanNama ?? String(it.produkSatuanId)}" sudah digunakan untuk produk ini`;
+    });
+    return errs;
+  }, [items]);
+
   const addProduk = (p: ProdukDTO) => {
     const satuanOptions = p.satuan.map((s) => ({ produkSatuanId: s.id, satuanNama: s.satuanNama, harga: s.harga }));
     const hargaTerkecil = satuanOptions.length ? Math.min(...satuanOptions.map((s) => s.harga)) : 0;
@@ -112,23 +128,16 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
   };
 
   const updateItem = (idx: number, patch: Partial<DraftItem>) => {
-    setItems(items.map((it, i) => i === idx ? { ...it, ...patch } : it));
+    setItems((prev) => prev.map((it, i) => i === idx ? { ...it, ...patch } : it));
   };
 
-  // Ganti satuan item: deteksi konflik (sku + satuan sama dengan baris lain)
-  // dan isi harga jual default dari satuan terpilih.
+  // Ganti satuan item: isi harga jual default dari satuan terpilih. Opsi satuan
+  // TIDAK di-disable walau dipakai baris lain (agar penukaran/penataan ulang
+  // satuan untuk SKU yang sama tetap bisa) — duplikat sku+satuan ditolak oleh
+  // `satuanErrors` (derived) dan pengecekan `seenKeys` di submit.
   const changeSatuan = (idx: number, value: string) => {
     const psId = value === "" ? null : Number(value);
-    const item = items[idx];
-    const opt = item.satuanOptions.find((o) => o.produkSatuanId === psId);
-    const conflict = psId !== null
-      && items.some((other, i) => i !== idx && other.sku === item.sku && other.produkSatuanId === psId);
-    setSatuanErrors((prev) => {
-      const next = { ...prev };
-      if (conflict) next[idx] = `Satuan "${opt?.satuanNama ?? value}" sudah digunakan untuk produk ini`;
-      else delete next[idx];
-      return next;
-    });
+    const opt = items[idx].satuanOptions.find((o) => o.produkSatuanId === psId);
     setItems((prev) => prev.map((it, i) => i === idx
       ? { ...it, produkSatuanId: psId, hargaJual: opt ? opt.harga : it.hargaJual }
       : it));
@@ -136,15 +145,6 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
 
   const removeItem = (idx: number) => {
     setItems((prev) => prev.filter((_, i) => i !== idx));
-    setSatuanErrors((prev) => {
-      const next: Record<number, string> = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const ki = parseInt(k, 10);
-        if (ki < idx) next[ki] = v;
-        else if (ki > idx) next[ki - 1] = v;
-      });
-      return next;
-    });
   };
 
   const submit = async () => {
@@ -323,7 +323,7 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
                                 {it.satuanOptions.map((o) => {
                                   const used = usedBySameSku.includes(o.produkSatuanId);
                                   return (
-                                    <option key={o.produkSatuanId} value={o.produkSatuanId} disabled={used}
+                                    <option key={o.produkSatuanId} value={o.produkSatuanId}
                                       style={{ color: used ? '#9ca3af' : '#1a0408' }}>
                                       {o.satuanNama}{used ? " (terpakai)" : ""}
                                     </option>
@@ -534,7 +534,7 @@ function DetailModal({ data, onClose, onSetSelesai, onDelete }: {
           {data.status === "aktif" && (
             <button onClick={() => onSetSelesai(data.id)}
               className="px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
-              style={{ borderColor: '#3b82f6', color: '#3b82f6' }}>
+              style={{ borderColor: '#27b446', color: '#27b446' }}>
               Tandai Selesai
             </button>
           )}
@@ -897,8 +897,8 @@ export default function Konsinyasi() {
                             <div className="flex items-center justify-center gap-2">
                               {k.status === 'aktif' && (
                                 <button onClick={() => setReturning(k)}
-                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-blue-50"
-                                  style={{ borderColor: '#3b82f6', color: '#3b82f6' }}>
+                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-green-50"
+                                  style={{ borderColor: '#27b446', color: '#27b446' }}>
                                   <Undo2 className="w-4 h-4" />
                                   Pengembalian
                                 </button>
@@ -1082,7 +1082,7 @@ function ReturnKonsinyasiModal({ data, busy, onClose, onReturn }: ReturnKonsinya
             onClick={handleConfirm}
             disabled={busy}
             className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#3b82f6' }}
+            style={{ backgroundColor: '#27b446' }}
           >
             {busy ? "Memproses..." : "Ya, Kembalikan"}
           </button>
@@ -1176,7 +1176,7 @@ function ReturnKonsinyasiModal({ data, busy, onClose, onReturn }: ReturnKonsinya
                           <button
                             onClick={() => handleUpdateReturn(item.id, item.qtyReturn + 1, item.qtyTersisa)}
                             className="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors hover:bg-gray-50"
-                            style={{ borderColor: '#3b82f6', color: '#3b82f6' }}
+                            style={{ borderColor: '#27b446', color: '#27b446' }}
                           >
                             <Plus className="w-4 h-4" />
                           </button>
@@ -1225,7 +1225,7 @@ function ReturnKonsinyasiModal({ data, busy, onClose, onReturn }: ReturnKonsinya
           onClick={handleSubmit}
           disabled={totalQtyReturn === 0}
           className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: '#3b82f6' }}
+          style={{ backgroundColor: '#27b446' }}
         >
           Proses Pengembalian
         </button>

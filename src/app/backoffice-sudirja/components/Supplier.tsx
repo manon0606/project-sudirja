@@ -66,9 +66,10 @@ interface SupplierFormProps {
   onSubmit: () => void;
   onClose: () => void;
   busy: boolean;
+  error?: string;
 }
 
-function SupplierForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }: SupplierFormProps) {
+function SupplierForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, error }: SupplierFormProps) {
   const set = (key: keyof CreateSupplierInput, next: unknown) => onChange({ ...value, [key]: next } as CreateSupplierInput);
   const inputStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as any;
   const iCls = "w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 text-sm";
@@ -93,6 +94,11 @@ function SupplierForm({ title, subtitle, value, onChange, onSubmit, onClose, bus
 
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
+          {error && (
+            <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+            </div>
+          )}
           <div className="space-y-4">
 
             {/* Informasi Utama */}
@@ -321,6 +327,7 @@ export default function Supplier() {
   const [viewing, setViewing] = useState<SupplierDTO | null>(null);
   const [deleting, setDeleting] = useState<SupplierDTO | null>(null);
   const [form, setForm] = useState<CreateSupplierInput>(emptyForm);
+  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -378,6 +385,8 @@ export default function Supplier() {
   });
 
   const saveCreate = async () => {
+    setFormError("");
+    if (!form.nama.trim()) { setFormError("Nama supplier wajib diisi."); return; }
     setBusy(true);
     try {
       await createSupplier(form);
@@ -386,12 +395,14 @@ export default function Supplier() {
       setPage(1);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan supplier.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan supplier.");
     } finally { setBusy(false); }
   };
 
   const saveEdit = async () => {
     if (!editing) return;
+    setFormError("");
+    if (!form.nama.trim()) { setFormError("Nama supplier wajib diisi."); return; }
     setBusy(true);
     try {
       const payload: Record<string, unknown> = {};
@@ -407,7 +418,7 @@ export default function Supplier() {
       await load();
       if (updated) setViewing(updated);
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan supplier.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan supplier.");
     } finally { setBusy(false); }
   };
 
@@ -516,10 +527,10 @@ export default function Supplier() {
                   className="px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   style={{ backgroundColor: '#e40b18' }}>Nonaktifkan</button>
                 <button onClick={() => setSelected(new Set())}
-                  className="px-4 py-2 rounded-lg border transition-colors" style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Batal</button>
+                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-red-50" style={{ borderColor: '#e40b18', color: '#e40b18' }}>Batal</button>
               </div>
             ) : (
-              <button onClick={() => { setForm(emptyForm); setShowCreate(true); }}
+              <button onClick={() => { setForm(emptyForm); setFormError(""); setShowCreate(true); }}
                 className="px-4 py-3 rounded-lg text-white transition-opacity hover:opacity-90 flex items-center gap-2"
                 style={{ backgroundColor: '#27b446' }}>
                 <Plus className="w-5 h-5" />
@@ -639,7 +650,7 @@ export default function Supplier() {
                               {search ? "Tidak ada supplier ditemukan" : "Belum ada data supplier"}
                             </p>
                             {!search && (
-                              <button onClick={() => { setForm(emptyForm); setShowCreate(true); }}
+                              <button onClick={() => { setForm(emptyForm); setFormError(""); setShowCreate(true); }}
                                 className="mt-3 px-4 py-2 rounded-lg text-white text-sm hover:opacity-90"
                                 style={{ backgroundColor: '#27b446' }}>
                                 Tambah Supplier Pertama
@@ -649,7 +660,7 @@ export default function Supplier() {
                         </tr>
                       ) : items.map((s, index) => (
                         <tr key={s.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-                          onClick={() => { setEditing(s); setForm(toForm(s)); }}
+                          onClick={() => { setFormError(""); setEditing(s); setForm(toForm(s)); }}
                           style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
                           <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                             <button onClick={() => handleSelect(s.id, !selected.has(s.id))} className="flex items-center justify-center" style={{ color: '#27b446' }}>
@@ -700,7 +711,7 @@ export default function Supplier() {
                           </td>
                           <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-2">
-                              <button onClick={(e) => { e.stopPropagation(); setEditing(s); setForm(toForm(s)); }}
+                              <button onClick={(e) => { e.stopPropagation(); setFormError(""); setEditing(s); setForm(toForm(s)); }}
                                 className="p-2 rounded-lg transition-colors hover:bg-gray-100"
                                 style={{ color: '#27b446' }} title="Edit Supplier">
                                 <Pencil className="w-4 h-4" />
@@ -769,6 +780,7 @@ export default function Supplier() {
           onSubmit={() => void saveCreate()}
           onClose={() => { setShowCreate(false); setForm(emptyForm); }}
           busy={busy}
+          error={formError}
         />
       )}
 
@@ -782,6 +794,7 @@ export default function Supplier() {
           onSubmit={() => void saveEdit()}
           onClose={() => setEditing(null)}
           busy={busy}
+          error={formError}
         />
       )}
 
@@ -790,7 +803,7 @@ export default function Supplier() {
         <DetailModal
           sup={viewing}
           onClose={() => setViewing(null)}
-          onEdit={(s) => { setEditing(s); setForm(toForm(s)); }}
+          onEdit={(s) => { setFormError(""); setEditing(s); setForm(toForm(s)); }}
         />
       )}
 

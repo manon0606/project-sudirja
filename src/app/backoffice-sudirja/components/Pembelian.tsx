@@ -149,6 +149,11 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 
         <div className="overflow-y-auto px-6 py-4 flex-1">
           <div className="space-y-5">
+            {error && (
+              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+              </div>
+            )}
             {/* Info dasar */}
             <div className="grid grid-cols-3 gap-4">
               <label>
@@ -297,17 +302,11 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                 </div>
               )}
             </div>
-
-            {error && (
-              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
-                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
-              </div>
-            )}
           </div>
         </div>
 
         <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border transition-colors" style={{ borderColor: '#1a0408', color: '#1a0408' }}>Batal</button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border transition-colors hover:bg-red-50" style={{ borderColor: '#e40b18', color: '#e40b18' }}>Batal</button>
           <button onClick={() => void submit()} disabled={busy}
             className="px-6 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: '#27b446' }}>
@@ -416,8 +415,8 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
             style={{ borderColor: '#e40b18', color: '#e40b18' }}>
             Hapus (kembalikan stok)
           </button>
-          <button onClick={onClose} className="px-5 py-2 rounded-lg border transition-colors"
-            style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Tutup</button>
+          <button onClick={onClose} className="px-5 py-2 rounded-lg border transition-colors hover:bg-red-50"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}>Tutup</button>
         </div>
     </Modal>
   );

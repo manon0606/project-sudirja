@@ -102,9 +102,10 @@ interface UserFormProps {
   busy: boolean;
   requirePassword?: boolean;
   roles: RoleDTO[];
+  error?: string;
 }
 
-function UserForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, requirePassword, roles }: UserFormProps) {
+function UserForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, requirePassword, roles, error }: UserFormProps) {
   const set = (key: keyof CreateUserInput, next: unknown) => onChange({ ...value, [key]: next } as CreateUserInput);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -141,10 +142,15 @@ function UserForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, r
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {error && (
+            <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+            </div>
+          )}
           <div>
             <label className="block mb-2 text-sm" style={{ color: '#1a0408', opacity: 0.7 }}>Username (akun login) *</label>
             <input
-              required value={value.username} onChange={(e) => set("username", e.target.value)}
+              value={value.username} onChange={(e) => set("username", e.target.value)}
               placeholder="cth: siti.nurhaliza"
               className={INPUT_CLS}
               style={{ ...INPUT_RING, fontFamily: 'monospace' }}
@@ -154,7 +160,7 @@ function UserForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, r
           <div>
             <label className="block mb-2 text-sm" style={{ color: '#1a0408', opacity: 0.7 }}>Nama Lengkap *</label>
             <input
-              required value={value.fullName} onChange={(e) => set("fullName", e.target.value)}
+              value={value.fullName} onChange={(e) => set("fullName", e.target.value)}
               placeholder="cth: Siti Nurhaliza"
               className={INPUT_CLS}
               style={INPUT_RING}
@@ -271,6 +277,7 @@ function RoleSection() {
   const [roles, setRoles] = useState<RoleDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newLabel, setNewLabel] = useState("");
@@ -295,26 +302,27 @@ function RoleSection() {
 
   const handleCreate = async () => {
     setBusy(true);
-    setError("");
+    setFormError("");
+    if (!newName.trim() || !newLabel.trim()) { setFormError("Kode role dan label wajib diisi."); setBusy(false); return; }
     try {
       await createRole({ name: newName, label: newLabel, permissions: newPerms });
       setShowCreate(false);
       setNewName(""); setNewLabel(""); setNewPerms([]);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal membuat role.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal membuat role.");
     } finally { setBusy(false); }
   };
 
   const handleSavePerms = async (role: RoleDTO) => {
     setBusy(true);
-    setError("");
+    setFormError("");
     try {
       await updateRole(role.name, { label: editLabel, permissions: editPerms });
       setEditingRole(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan akses role.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan akses role.");
     } finally { setBusy(false); }
   };
 
@@ -432,6 +440,11 @@ function RoleSection() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            {formError && (
+              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {formError}</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>
@@ -483,6 +496,11 @@ function RoleSection() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            {formError && (
+              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {formError}</p>
+              </div>
+            )}
             <div>
               <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>Label Role</label>
               <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)}
@@ -560,7 +578,7 @@ function RoleSection() {
               </p>
             </div>
           </div>
-          <button onClick={() => setShowCreate(true)}
+          <button onClick={() => { setFormError(""); setShowCreate(true); }}
             className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: '#27b446' }}>
             <Plus className="w-5 h-5" />
@@ -623,7 +641,7 @@ function RoleSection() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
-                        <button onClick={() => { setEditingRole(role); setEditPerms(role.permissions); setEditLabel(role.label); }}
+                        <button onClick={() => { setFormError(""); setEditingRole(role); setEditPerms(role.permissions); setEditLabel(role.label); }}
                           className="p-2 rounded-lg transition-colors hover:bg-gray-100"
                           style={{ color: '#27b446' }}
                           title="Atur Akses">
@@ -665,6 +683,7 @@ function KomisiSection() {
   const [roles, setRoles] = useState<RoleDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
   const [savingRole, setSavingRole] = useState("");
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [editPersen, setEditPersen] = useState("");
@@ -705,8 +724,9 @@ function KomisiSection() {
 
   const handleSaveSetting = async (role: string) => {
     const persen = Number(editPersen);
+    setFormError("");
     if (!Number.isFinite(persen) || persen < 0 || persen > 100) {
-      setError("Persen komisi harus 0-100.");
+      setFormError("Persen komisi harus 0-100.");
       return;
     }
     setSavingRole(role);
@@ -715,7 +735,7 @@ function KomisiSection() {
       setEditingRole(null);
       await loadSettings();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan pengaturan komisi.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan pengaturan komisi.");
     } finally { setSavingRole(""); }
   };
 
@@ -847,6 +867,11 @@ function KomisiSection() {
             </button>
           </div>
           <div className="px-6 py-5">
+            {formError && (
+              <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {formError}</p>
+              </div>
+            )}
             <label className="block mb-2 text-sm" style={{ color: '#1a0408' }}>
               Nilai Komisi (%) <span style={{ color: '#e40b18' }}>*</span>
             </label>
@@ -926,7 +951,7 @@ function KomisiSection() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
-                        <button onClick={() => { setEditingRole(s.role); setEditPersen(String(s.persenKomisi)); }}
+                        <button onClick={() => { setFormError(""); setEditingRole(s.role); setEditPersen(String(s.persenKomisi)); }}
                           className="p-2 rounded-lg transition-colors hover:bg-gray-100"
                           style={{ color: '#27b446' }}
                           title="Edit Nilai Komisi">
@@ -1246,6 +1271,7 @@ export default function User() {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UserDTO | null>(null);
   const [form, setForm] = useState<CreateUserInput>(emptyForm);
+  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -1302,6 +1328,9 @@ export default function User() {
   };
 
   const saveCreate = async () => {
+    setFormError("");
+    if (!form.username.trim() || !form.fullName.trim()) { setFormError("Username dan nama lengkap wajib diisi."); return; }
+    if (!form.password) { setFormError("Password wajib diisi."); return; }
     setBusy(true);
     try {
       await createUser(form);
@@ -1310,12 +1339,14 @@ export default function User() {
       setPage(1);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan user.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan user.");
     } finally { setBusy(false); }
   };
 
   const saveEdit = async () => {
     if (!editing) return;
+    setFormError("");
+    if (!form.username.trim() || !form.fullName.trim()) { setFormError("Username dan nama lengkap wajib diisi."); return; }
     setBusy(true);
     try {
       const payload: Record<string, unknown> = {};
@@ -1330,7 +1361,7 @@ export default function User() {
       setEditing(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan user.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan user.");
     } finally { setBusy(false); }
   };
 
@@ -1445,7 +1476,7 @@ export default function User() {
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
                       <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-20">
-                        <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
+                        <button onClick={() => { setShowAddMenu(false); setFormError(""); setShowCreate(true); }}
                           className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
                           style={{ color: '#1a0408' }}>
                           <Edit className="w-5 h-5" style={{ color: '#27b446' }} />
@@ -1621,6 +1652,7 @@ export default function User() {
                               </td>
                               <td className="px-6 py-4 text-center">
                                 <button onClick={() => {
+                                  setFormError("");
                                   setEditing(user);
                                   setForm({
                                     username: user.username, password: "", fullName: user.fullName,
@@ -1702,6 +1734,7 @@ export default function User() {
           busy={busy}
           requirePassword
           roles={roles}
+          error={formError}
         />
       )}
 
@@ -1716,6 +1749,7 @@ export default function User() {
           onClose={() => setEditing(null)}
           busy={busy}
           roles={roles}
+          error={formError}
         />
       )}
     </div>

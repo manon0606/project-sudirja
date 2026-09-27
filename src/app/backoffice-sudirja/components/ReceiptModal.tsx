@@ -1,5 +1,5 @@
 "use client";
-import { Printer, CheckCircle, X } from "lucide-react";
+import { Printer, CheckCircle } from "lucide-react";
 import Modal from "./Modal";
 
 interface ReceiptItem {
@@ -212,16 +212,16 @@ export default function ReceiptModal({
         <div className="px-6 py-4 flex gap-3" style={{ borderTop: "1px solid #e5e7eb" }}>
           <button
             onClick={() => alert("Mencetak nota...")}
-            className="flex-1 py-3 rounded-lg border-2 flex items-center justify-center gap-2 transition-colors hover:bg-gray-50"
-            style={{ borderColor: "#27b446", color: "#27b446" }}
+            className="flex-1 py-3 rounded-lg text-white flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
+            style={{ backgroundColor: "#27b446" }}
           >
             <Printer className="w-4 h-4" />
             Cetak Nota
           </button>
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: "#27b446" }}
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+            style={{ borderColor: "#e40b18", color: "#e40b18" }}
           >
             Selesai
           </button>

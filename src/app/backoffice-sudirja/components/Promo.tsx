@@ -69,9 +69,10 @@ interface PromoFormProps {
   onSubmit: () => void;
   onClose: () => void;
   busy: boolean;
+  error?: string;
 }
 
-function PromoForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }: PromoFormProps) {
+function PromoForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, error }: PromoFormProps) {
   const set = (key: keyof CreatePromoInput, next: unknown) =>
     onChange({ ...value, [key]: next } as CreatePromoInput);
 
@@ -147,6 +148,11 @@ function PromoForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {error && (
+            <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+            </div>
+          )}
           {/* Row 1: Kode + Tipe */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -227,7 +233,7 @@ function PromoForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }
               <input
                 type="number"
                 onWheel={blockWheel}
-                required min="1"
+                min="1"
                 value={value.nilaiDiskon || ""}
                 onChange={(e) => set("nilaiDiskon", Number(e.target.value))}
                 className={inputClass}
@@ -275,7 +281,7 @@ function PromoForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }
               <input
                 type="number"
                 onWheel={blockWheel}
-                required min="1"
+                min="1"
                 value={value.batasKuota}
                 onChange={(e) => set("batasKuota", Number(e.target.value))}
                 className={inputClass}
@@ -557,8 +563,8 @@ function PromoDetailModal({ promo, onClose, onEdit, onToggleStatus }: PromoDetai
         <button
           type="button"
           onClick={onClose}
-          className="flex-1 py-3 rounded-lg border transition-colors"
-          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}
         >
           Tutup
         </button>
@@ -610,6 +616,7 @@ export default function Promo() {
   const [editing, setEditing] = useState<PromoDTO | null>(null);
   const [viewing, setViewing] = useState<PromoDTO | null>(null);
   const [form, setForm] = useState<CreatePromoInput>(emptyForm);
+  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
 
@@ -670,6 +677,7 @@ export default function Promo() {
   };
 
   const saveCreate = async () => {
+    setFormError("");
     setBusy(true);
     try {
       await createPromo(form);
@@ -678,7 +686,7 @@ export default function Promo() {
       setPage(1);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan promo.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan promo.");
     } finally {
       setBusy(false);
     }
@@ -686,6 +694,7 @@ export default function Promo() {
 
   const saveEdit = async () => {
     if (!editing) return;
+    setFormError("");
     setBusy(true);
     try {
       await updatePromo(editing.id, form);
@@ -693,7 +702,7 @@ export default function Promo() {
       setViewing(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan promo.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan promo.");
     } finally {
       setBusy(false);
     }
@@ -803,7 +812,7 @@ export default function Promo() {
                       <div className="fixed inset-0 z-10" onClick={() => setShowAddPromoMenu(false)} />
                       <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
                         <button
-                          onClick={() => { setShowAddPromoMenu(false); setShowCreate(true); }}
+                          onClick={() => { setShowAddPromoMenu(false); setFormError(""); setShowCreate(true); }}
                           className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
                           style={{ color: '#1a0408' }}
                         >
@@ -1069,6 +1078,7 @@ export default function Promo() {
           onClose={() => setViewing(null)}
           onEdit={(promo) => {
             setViewing(null);
+            setFormError("");
             setEditing(promo);
             setForm({
               kode: promo.kode, nama: promo.nama, tipe: promo.tipe, deskripsi: promo.deskripsi,
@@ -1092,6 +1102,7 @@ export default function Promo() {
           onSubmit={() => void saveCreate()}
           onClose={() => { setShowCreate(false); setForm(emptyForm); }}
           busy={busy}
+          error={formError}
         />
       )}
 
@@ -1105,6 +1116,7 @@ export default function Promo() {
           onSubmit={() => void saveEdit()}
           onClose={() => setEditing(null)}
           busy={busy}
+          error={formError}
         />
       )}
 
@@ -1215,6 +1227,11 @@ function BulkUploadPromoModal({ onClose, onDone }: BulkUploadPromoModalProps) {
 
       {/* Content */}
       <div className="px-6 py-6">
+        {error && (
+          <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+            <p style={{ color: '#991b1b' }}>⚠ {error}</p>
+          </div>
+        )}
         {/* Upload Area */}
         <div
           className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-opacity-100"
@@ -1249,12 +1266,6 @@ function BulkUploadPromoModal({ onClose, onDone }: BulkUploadPromoModalProps) {
             </div>
           )}
         </div>
-
-        {error && (
-          <div className="mt-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
-            <p style={{ color: '#e40b18' }}>⚠ {error}</p>
-          </div>
-        )}
 
         {result && (
           <div className="mt-4 p-4 rounded-lg" style={{ backgroundColor: 'rgba(39,180,70,0.08)', border: '1px solid rgba(39,180,70,0.25)' }}>
@@ -1307,7 +1318,7 @@ function BulkUploadPromoModal({ onClose, onDone }: BulkUploadPromoModalProps) {
       <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
         <button
           onClick={onClose}
-          className="flex-1 py-3 rounded-lg border transition-colors"
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
           style={{
             borderColor: '#e40b18',
             color: '#e40b18'

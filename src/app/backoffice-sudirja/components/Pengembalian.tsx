@@ -567,7 +567,7 @@ function ReturnDetailModal({ data, onClose }: { data: ReturDTO; onClose: () => v
         <div className="px-6 py-4 border-t border-gray-200">
           <button
             onClick={onClose}
-            className="w-full py-3 rounded-lg border-2 transition-colors"
+            className="w-full py-3 rounded-lg border-2 transition-colors hover:bg-red-50"
             style={{ borderColor: '#e40b18', color: '#e40b18' }}
           >
             Tutup

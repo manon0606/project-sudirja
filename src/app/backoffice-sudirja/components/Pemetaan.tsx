@@ -36,9 +36,10 @@ interface OngkirFormProps {
   onClose: () => void;
   busy: boolean;
   kodeDisabled?: boolean;
+  error?: string;
 }
 
-function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, kodeDisabled }: OngkirFormProps) {
+function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, kodeDisabled, error }: OngkirFormProps) {
   const set = (key: keyof CreateOngkirInput, next: unknown) => onChange({ ...value, [key]: next } as CreateOngkirInput);
 
   return (
@@ -57,11 +58,16 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
         </div>
 
         <div className="overflow-y-auto max-h-[60vh] px-6 py-4">
+          {error && (
+            <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+            </div>
+          )}
           <div className="space-y-4">
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kode *</span>
               <input
-                required value={value.kode} disabled={kodeDisabled}
+                value={value.kode} disabled={kodeDisabled}
                 onChange={(e) => set("kode", e.target.value)}
                 placeholder="cth: KCM001"
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 disabled:bg-gray-50 disabled:cursor-not-allowed"
@@ -72,7 +78,7 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Kecamatan *</span>
               <input
-                required value={value.kecamatan}
+                value={value.kecamatan}
                 onChange={(e) => set("kecamatan", e.target.value)}
                 placeholder="cth: Bandung Wetan"
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
@@ -82,7 +88,7 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
             <label>
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Ongkir (Rp) *</span>
               <input
-                required type="number" min="0" value={value.ongkir || ""}
+                type="number" min="0" value={value.ongkir || ""}
                 onChange={(e) => set("ongkir", Number(e.target.value))}
                 placeholder="cth: 15000"
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
@@ -110,8 +116,8 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
 
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button type="button" onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-            style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}>
             Batal
           </button>
           <button type="submit" disabled={busy}
@@ -153,8 +159,8 @@ function DeleteConfirmModal({ item, busy, onClose, onConfirm }: DeleteConfirmMod
       </div>
       <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
         <button onClick={onClose}
-          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}>
           Batal
         </button>
         <button onClick={onConfirm} disabled={busy}
@@ -195,8 +201,8 @@ function BulkDeleteConfirmModal({ count, busy, onClose, onConfirm }: BulkDeleteC
       </div>
       <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
         <button onClick={onClose}
-          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}>
           Batal
         </button>
         <button onClick={onConfirm} disabled={busy}
@@ -231,6 +237,7 @@ export default function Pemetaan() {
   const [deleting, setDeleting] = useState<OngkirDTO | null>(null);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [form, setForm] = useState<CreateOngkirInput>(emptyForm);
+  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -283,6 +290,7 @@ export default function Pemetaan() {
   };
 
   const saveCreate = async () => {
+    setFormError("");
     setBusy(true);
     try {
       await createOngkir(form);
@@ -291,12 +299,13 @@ export default function Pemetaan() {
       setPage(1);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan data ongkir.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan data ongkir.");
     } finally { setBusy(false); }
   };
 
   const saveEdit = async () => {
     if (!editing) return;
+    setFormError("");
     setBusy(true);
     try {
       await updateOngkir(editing.kode, {
@@ -307,7 +316,7 @@ export default function Pemetaan() {
       setEditing(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan data ongkir.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan data ongkir.");
     } finally { setBusy(false); }
   };
 
@@ -433,7 +442,7 @@ export default function Pemetaan() {
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
                     <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
-                      <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
+                      <button onClick={() => { setShowAddMenu(false); setFormError(""); setShowCreate(true); }}
                         className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
                         style={{ color: '#1a0408' }}>
                         <Edit className="w-5 h-5" style={{ color: '#27b446' }} />
@@ -536,8 +545,8 @@ export default function Pemetaan() {
                 </button>
                 <button
                   onClick={() => setSelected(new Set())}
-                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-gray-50"
-                  style={{ borderColor: '#e5e7eb', color: '#1a0408' }}
+                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-red-50"
+                  style={{ borderColor: '#e40b18', color: '#e40b18' }}
                 >
                   Batal
                 </button>
@@ -640,6 +649,7 @@ export default function Pemetaan() {
                               <div className="flex items-center justify-center gap-1">
                                 <button
                                   onClick={() => {
+                                    setFormError("");
                                     setEditing(item);
                                     setForm({ kode: item.kode, kecamatan: item.kecamatan, ongkir: item.ongkir, isActive: item.isActive });
                                   }}
@@ -729,6 +739,7 @@ export default function Pemetaan() {
           onSubmit={() => void saveCreate()}
           onClose={() => { setShowCreate(false); setForm(emptyForm); }}
           busy={busy}
+          error={formError}
         />
       )}
 
@@ -743,6 +754,7 @@ export default function Pemetaan() {
           onClose={() => setEditing(null)}
           busy={busy}
           kodeDisabled
+          error={formError}
         />
       )}
 

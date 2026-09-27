@@ -640,7 +640,7 @@ function CreditDetailModal({ order, onClose, currentUser, onPaymentRecorded }: C
           {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
             <button onClick={onClose}
-              className="flex-1 py-3 rounded-lg border-2 transition-colors"
+              className="flex-1 py-3 rounded-lg border-2 transition-colors hover:bg-red-50"
               style={{ borderColor: '#e40b18', color: '#e40b18' }}>
               Tutup
             </button>
@@ -665,6 +665,11 @@ function CreditDetailModal({ order, onClose, currentUser, onPaymentRecorded }: C
           </div>
 
           <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            {error && (
+              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+                <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+              </div>
+            )}
             {/* Summary cards */}
             <div className="grid grid-cols-1 gap-2">
               <div className="flex justify-between items-center px-4 py-3 rounded-lg"
@@ -746,9 +751,6 @@ function CreditDetailModal({ order, onClose, currentUser, onPaymentRecorded }: C
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 text-sm"
                   style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
                 />
-                {error && (
-                  <p className="text-xs" style={{ color: '#e40b18' }}>⚠ {error}</p>
-                )}
                 <button
                   onClick={() => void handleSubmit()}
                   disabled={!canSubmit}

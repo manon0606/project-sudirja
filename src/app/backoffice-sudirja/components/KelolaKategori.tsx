@@ -462,6 +462,11 @@ const KelolaKategori: React.FC = () => {
             </div>
 
             <div className="px-6 py-4 space-y-4">
+              {formError && (
+                <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                  <p className="text-sm">⚠ {formError}</p>
+                </div>
+              )}
               <div>
                 <label className="block mb-2" style={{ color: '#000000' }}>
                   Nama Kategori <span style={{ color: '#e40b18' }}>*</span>
@@ -478,18 +483,12 @@ const KelolaKategori: React.FC = () => {
                   } as any}
                 />
               </div>
-
-              {formError && (
-                <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
-                  <p className="text-sm">⚠ {formError}</p>
-                </div>
-              )}
             </div>
 
             <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="flex-1 py-3 rounded-lg border transition-colors"
+                className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
                 style={{ borderColor: '#e40b18', color: '#e40b18' }}
               >
                 Batal
@@ -517,6 +516,11 @@ const KelolaKategori: React.FC = () => {
             </div>
 
             <div className="px-6 py-4 space-y-4">
+              {formError && (
+                <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                  <p className="text-sm">⚠ {formError}</p>
+                </div>
+              )}
               <div>
                 <label className="block mb-2" style={{ color: '#000000' }}>ID Kategori</label>
                 <input
@@ -544,18 +548,12 @@ const KelolaKategori: React.FC = () => {
                   } as any}
                 />
               </div>
-
-              {formError && (
-                <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
-                  <p className="text-sm">⚠ {formError}</p>
-                </div>
-              )}
             </div>
 
             <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
               <button
                 onClick={() => setShowEditModal(false)}
-                className="flex-1 py-3 rounded-lg border transition-colors"
+                className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
                 style={{ borderColor: '#e40b18', color: '#e40b18' }}
               >
                 Batal
@@ -591,8 +589,8 @@ const KelolaKategori: React.FC = () => {
             <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
               <button
                 onClick={() => setShowDeleteModal(false)}
-                className="flex-1 py-3 rounded-lg border transition-colors"
-                style={{ borderColor: '#1a0408', color: '#1a0408' }}
+                className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+                style={{ borderColor: '#e40b18', color: '#e40b18' }}
               >
                 Batal
               </button>

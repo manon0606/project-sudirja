@@ -99,8 +99,8 @@ function PilihKurirModal({ onClose, onAssign, kurirs, busy }: {
         </div>
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-            style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}>
             Batal
           </button>
           <button
@@ -267,7 +267,7 @@ function OrderDetailModal({ order, onClose, onPilihKurir, onSelesaikan, busy }: 
             </button>
           ) : <div />}
           <button onClick={onClose}
-            className="px-5 py-3 rounded-lg border transition-colors"
+            className="px-5 py-3 rounded-lg border transition-colors hover:bg-red-50"
             style={{ borderColor: '#e40b18', color: '#e40b18' }}>
             Tutup
           </button>
@@ -700,7 +700,7 @@ export default function Commerce() {
               </button>
             )}
             <button onClick={() => setSelectedOrderIds([])}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-gray-50"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-red-50"
               style={{ borderColor: '#e40b18', color: '#e40b18' }}>
               <X className="w-4 h-4" />
               Batal

@@ -512,6 +512,11 @@ function AddSatuanModal({ onClose, onAdd }: AddSatuanModalProps) {
         </div>
 
         <div className="px-6 py-4 space-y-4">
+          {error && (
+            <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+              <p className="text-sm">⚠ {error}</p>
+            </div>
+          )}
           <div>
             <label className="block mb-2" style={{ color: '#000000' }}>
               Nama Satuan <span style={{ color: '#e40b18' }}>*</span>
@@ -548,18 +553,12 @@ function AddSatuanModal({ onClose, onAdd }: AddSatuanModalProps) {
               Berapa banyak unit dasar dalam satuan ini
             </p>
           </div>
-
-          {error && (
-            <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
-              <p className="text-sm">⚠ {error}</p>
-            </div>
-          )}
         </div>
 
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors"
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
             style={{ borderColor: '#e40b18', color: '#e40b18' }}
           >
             Batal
@@ -626,6 +625,11 @@ function EditSatuanModal({ satuan, onClose, onUpdate }: EditSatuanModalProps) {
         </div>
 
         <div className="px-6 py-4 space-y-4">
+          {error && (
+            <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+              <p className="text-sm">⚠ {error}</p>
+            </div>
+          )}
           <div>
             <label className="block mb-2" style={{ color: '#000000' }}>
               ID
@@ -670,18 +674,12 @@ function EditSatuanModal({ satuan, onClose, onUpdate }: EditSatuanModalProps) {
               } as any}
             />
           </div>
-
-          {error && (
-            <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
-              <p className="text-sm">⚠ {error}</p>
-            </div>
-          )}
         </div>
 
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors"
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
             style={{ borderColor: '#e40b18', color: '#e40b18' }}
           >
             Batal
@@ -733,19 +731,19 @@ function DeleteConfirmModal({ title, message, onClose, onConfirm, target }: Dele
         </div>
 
         <div className="px-6 py-6">
-          <p style={{ color: '#1a0408' }}>{message}</p>
           {error && (
-            <div className="mt-3 p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+            <div className="mb-3 p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
               <p className="text-sm">⚠ {error}</p>
             </div>
           )}
+          <p style={{ color: '#1a0408' }}>{message}</p>
         </div>
 
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-lg border transition-colors"
-            style={{ borderColor: '#1a0408', color: '#1a0408' }}
+            className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+            style={{ borderColor: '#e40b18', color: '#e40b18' }}
           >
             Batal
           </button>

@@ -43,9 +43,10 @@ interface PelangganFormProps {
   onSubmit: () => void;
   onClose: () => void;
   busy: boolean;
+  error?: string;
 }
 
-function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, busy }: PelangganFormProps) {
+function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, busy, error }: PelangganFormProps) {
   const set = (key: keyof CreatePelangganInput, next: unknown) => onChange({ ...value, [key]: next } as CreatePelangganInput);
   return (
     <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl overflow-hidden">
@@ -62,10 +63,15 @@ function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, bu
         </div>
 
         <div className="overflow-y-auto px-6 py-4 flex-1 min-h-0">
+          {error && (
+            <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
+              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <label className="col-span-2">
               <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Nama Pelanggan *</span>
-              <input required value={value.nama} onChange={(e) => set("nama", e.target.value)}
+              <input value={value.nama} onChange={(e) => set("nama", e.target.value)}
                 placeholder="cth: Ahmad Hidayat"
                 className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                 style={focusRingStyle} />
@@ -129,7 +135,7 @@ function PelangganForm({ title, subtitle, value, onChange, onSubmit, onClose, bu
 
         <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
           <button type="button" onClick={onClose}
-            className="px-4 py-2 rounded-lg border transition-colors" style={{ borderColor: '#1a0408', color: '#1a0408' }}>
+            className="px-4 py-2 rounded-lg border transition-colors hover:bg-red-50" style={{ borderColor: '#e40b18', color: '#e40b18' }}>
             Batal
           </button>
           <button type="submit" disabled={busy}
@@ -335,8 +341,8 @@ function BulkDeleteConfirmModal({ count, busy, onClose, onConfirm }: BulkDeleteC
       </div>
       <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
         <button onClick={onClose}
-          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+          className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+          style={{ borderColor: '#e40b18', color: '#e40b18' }}>
           Batal
         </button>
         <button onClick={onConfirm} disabled={busy}
@@ -372,6 +378,7 @@ export default function Pelanggan() {
   const [deleting, setDeleting] = useState<PelangganDTO | null>(null);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [form, setForm] = useState<CreatePelangganInput>(emptyForm);
+  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -420,6 +427,8 @@ export default function Pelanggan() {
   };
 
   const saveCreate = async () => {
+    setFormError("");
+    if (!form.nama.trim()) { setFormError("Nama pelanggan wajib diisi."); return; }
     setBusy(true);
     try {
       await createPelanggan(form);
@@ -428,12 +437,14 @@ export default function Pelanggan() {
       setPage(1);
       await load();
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan pelanggan.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan pelanggan.");
     } finally { setBusy(false); }
   };
 
   const saveEdit = async () => {
     if (!editing) return;
+    setFormError("");
+    if (!form.nama.trim()) { setFormError("Nama pelanggan wajib diisi."); return; }
     setBusy(true);
     try {
       const payload: Record<string, unknown> = {};
@@ -451,7 +462,7 @@ export default function Pelanggan() {
       // Update modal detail jika masih tampil.
       if (updated) setViewing(updated);
     } catch (e) {
-      setError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan pelanggan.");
+      setFormError(e instanceof ApiClientError ? e.message : "Gagal menyimpan perubahan pelanggan.");
     } finally { setBusy(false); }
   };
 
@@ -593,7 +604,7 @@ export default function Pelanggan() {
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
                     <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
-                      <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
+                      <button onClick={() => { setShowAddMenu(false); setFormError(""); setShowCreate(true); }}
                         className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
                         style={{ color: '#1a0408' }}>
                         <Edit className="w-5 h-5" style={{ color: '#27b446' }} />
@@ -678,8 +689,8 @@ export default function Pelanggan() {
                   Hapus ({selected.size})
                 </button>
                 <button onClick={() => setSelected(new Set())}
-                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-gray-50"
-                  style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
+                  className="px-4 py-2 rounded-lg border transition-colors hover:bg-red-50"
+                  style={{ borderColor: '#e40b18', color: '#e40b18' }}>
                   Batal
                 </button>
               </div>
@@ -768,7 +779,7 @@ export default function Pelanggan() {
                           </td>
                           <td className="px-6 py-4 text-center">
                             <div className="flex items-center justify-center gap-2">
-                              <button onClick={() => { setEditing(p); setForm({ nama: p.nama, email: p.email ?? "", telepon: p.telepon ?? "", alamat: p.alamat ?? "", kecamatan: p.kecamatan ?? "", isMember: p.isMember, isActive: p.isActive }); }}
+                              <button onClick={() => { setFormError(""); setEditing(p); setForm({ nama: p.nama, email: p.email ?? "", telepon: p.telepon ?? "", alamat: p.alamat ?? "", kecamatan: p.kecamatan ?? "", isMember: p.isMember, isActive: p.isActive }); }}
                                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 text-sm transition-all hover:opacity-80"
                                 style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
                                 <Edit className="w-4 h-4" /> Edit
@@ -847,6 +858,7 @@ export default function Pelanggan() {
           onSubmit={() => void saveCreate()}
           onClose={() => { setShowCreate(false); setForm(emptyForm); }}
           busy={busy}
+          error={formError}
         />
       )}
 
@@ -860,6 +872,7 @@ export default function Pelanggan() {
           onSubmit={() => void saveEdit()}
           onClose={() => setEditing(null)}
           busy={busy}
+          error={formError}
         />
       )}
 
@@ -868,7 +881,7 @@ export default function Pelanggan() {
         <DetailModal
           pelanggan={viewing}
           onClose={() => setViewing(null)}
-          onEdit={(p) => { setEditing(p); setForm({ nama: p.nama, email: p.email ?? "", telepon: p.telepon ?? "", alamat: p.alamat ?? "", kecamatan: p.kecamatan ?? "", isMember: p.isMember, isActive: p.isActive }); }}
+          onEdit={(p) => { setFormError(""); setEditing(p); setForm({ nama: p.nama, email: p.email ?? "", telepon: p.telepon ?? "", alamat: p.alamat ?? "", kecamatan: p.kecamatan ?? "", isMember: p.isMember, isActive: p.isActive }); }}
           onToggleMember={(p) => void toggleMember(p)}
           busy={busy}
         />
@@ -890,8 +903,8 @@ export default function Pelanggan() {
             <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.6 }}>Tindakan ini tidak dapat dibatalkan.</p>
           </div>
           <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
-            <button onClick={() => setDeleting(null)} className="flex-1 py-3 rounded-lg border transition-colors hover:bg-gray-50"
-              style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>Batal</button>
+            <button onClick={() => setDeleting(null)} className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50"
+              style={{ borderColor: '#e40b18', color: '#e40b18' }}>Batal</button>
             <button onClick={() => void confirmDelete()} disabled={busy}
               className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: '#e40b18' }}>{busy ? "Menghapus..." : "Hapus"}</button>
