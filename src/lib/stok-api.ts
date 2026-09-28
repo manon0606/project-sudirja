@@ -51,6 +51,12 @@ export function updateStok(sku: string, input: UpdateStokInput): Promise<StokDTO
   });
 }
 
+export function deleteStok(sku: string): Promise<{ deleted: boolean }> {
+  return apiFetch<{ deleted: boolean }>(`/api/backoffice-sudirja/stok/${encodeURIComponent(sku)}`, {
+    method: "DELETE",
+  });
+}
+
 export function bulkUpdateStok(input: BulkUpdateStokInput): Promise<BulkUpdateStokResult> {
   return apiFetch<BulkUpdateStokResult>("/api/backoffice-sudirja/stok/bulk", {
     method: "POST",
