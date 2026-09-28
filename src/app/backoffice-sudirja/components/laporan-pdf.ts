@@ -9,7 +9,10 @@
  *
  * Seksi desain yang datanya tidak ada di LaporanDTO dilewati (lihat notes
  * di task): "Produk Terlaris" (butuh data per item produk) dan kolom
- * "Status"/"Repack" (tidak ada di DTO).
+ * "Status" transaksi online (tidak ada di DTO). Kolom "Repack" tersedia di
+ * DTO sebagai `biayaRepack` dan ikut ditampilkan pada tabel Pembelian Stok
+ * bersama `estimasiLaba`; `totalPembelian`/`grandTotal` dari API sudah
+ * memuat biaya bahan repack sehingga tidak dihitung ulang di klien.
  */
 import type { CellInput, RowInput, UserOptions } from "jspdf-autotable";
 import { fmtWib } from "@/lib/date-utils";
@@ -245,6 +248,15 @@ export async function exportLaporanPdf(report: LaporanDTO): Promise<void> {
   const cashIn = report.rincian.cashFlow.filter((r) => r.tipe === "in");
   const cashOut = report.rincian.cashFlow.filter((r) => r.tipe === "out");
 
+  // Pembelian: totalPembelian sudah termasuk biaya bahan repack, grandTotal
+  // = totalPembelian + PPN, estimasiLaba sudah dihitung server (alokasi HPP
+  // pecahan dikurangi biaya repack). Jangan hitung ulang di klien.
+  const pembelian = report.rincian.pembelian;
+  const totalPembelianStok = pembelian.reduce((a, r) => a + r.totalPembelian, 0);
+  const totalBiayaRepack = pembelian.reduce((a, r) => a + r.biayaRepack, 0);
+  const totalGrandPembelian = pembelian.reduce((a, r) => a + r.grandTotal, 0);
+  const totalLabaPembelian = pembelian.reduce((a, r) => a + r.estimasiLaba, 0);
+
   // ------------------------------------------------------------------
   // 1. Ringkasan Total (mengikuti box "Ringkasan Total" desain + tabel
   //    rekap di tab Ringkasan)
@@ -261,6 +273,7 @@ export async function exportLaporanPdf(report: LaporanDTO): Promise<void> {
       ["+ Cash In", rp(s.totalCashIn)],
       ["TOTAL PEMASUKAN", rp(s.totalPemasukan)],
       ["Total Pembelian (PO)", rp(s.totalPembelian)],
+      ["   ↳ termasuk biaya bahan repack", rp(totalBiayaRepack)],
       ["Konsinyasi dibayar ke supplier", rp(s.totalKonsinyasiDibayar)],
       ["+ Cash Out", rp(s.totalCashOut)],
       ["TOTAL PENGELUARAN", rp(s.totalPengeluaran)],
@@ -268,8 +281,9 @@ export async function exportLaporanPdf(report: LaporanDTO): Promise<void> {
     ],
     emphasize: (i) => {
       if (i === 3) return { color: GREEN, bold: true };
-      if (i === 7) return { color: RED, bold: true };
-      if (i === 8) return { color: s.labaBersih >= 0 ? GREEN : RED, bold: true, size: 10 };
+      if (i === 5) return { color: GRAY };
+      if (i === 8) return { color: RED, bold: true };
+      if (i === 9) return { color: s.labaBersih >= 0 ? GREEN : RED, bold: true, size: 10 };
       return null;
     },
   });
@@ -356,25 +370,41 @@ export async function exportLaporanPdf(report: LaporanDTO): Promise<void> {
   });
 
   // ------------------------------------------------------------------
-  // 7. Pembelian Stok (kolom Repack desain diganti PPN + Estimasi Laba
-  //    sesuai field DTO)
+  // 7. Pembelian Stok (kolom Biaya Repack + Estimasi Laba; total baris akhir
+  //    memakai totalPembelian/grandTotal dari API sehingga repack ikut terhitung)
   // ------------------------------------------------------------------
+  const pembelianRows: CellInput[][] = pembelian.map((r) => [
+    r.noPembelian,
+    fmtWib(r.tanggal, "dd MMM yyyy"),
+    r.supplier,
+    rp(r.totalPembelian),
+    r.biayaRepack > 0 ? rp(r.biayaRepack) : "-",
+    r.ppn > 0 ? `${r.ppn}%` : "-",
+    rp(r.grandTotal),
+    rp(r.estimasiLaba),
+  ]);
+  if (pembelianRows.length > 0) {
+    pembelianRows.push([
+      `TOTAL (${pembelian.length} pembelian)`,
+      "",
+      "",
+      rp(totalPembelianStok),
+      totalBiayaRepack > 0 ? rp(totalBiayaRepack) : "-",
+      "",
+      rp(totalGrandPembelian),
+      rp(totalLabaPembelian),
+    ]);
+  }
+
   addSection({
     title: "Pembelian Stok",
     titleColor: RED,
-    total: { value: report.rincian.pembelian.reduce((a, r) => a + r.grandTotal, 0), color: RED },
-    head: ["No. Pembelian", "Tanggal", "Supplier", "Total Pembelian", "PPN", "Grand Total", "Estimasi Laba"],
-    widths: [38, 34, 55, 36, 18, 42, 46],
-    rightCols: [3, 4, 5, 6],
-    rows: report.rincian.pembelian.map((r) => [
-      r.noPembelian,
-      fmtWib(r.tanggal, "dd MMM yyyy"),
-      r.supplier,
-      rp(r.totalPembelian),
-      r.ppn > 0 ? `${r.ppn}%` : "-",
-      rp(r.grandTotal),
-      rp(r.estimasiLaba),
-    ]),
+    total: { value: totalGrandPembelian, color: RED },
+    head: ["No. Pembelian", "Tanggal", "Supplier", "Total Pembelian", "Biaya Repack", "PPN", "Grand Total", "Estimasi Laba"],
+    widths: [34, 30, 42, 36, 32, 14, 40, 41],
+    rightCols: [3, 4, 5, 6, 7],
+    rows: pembelianRows,
+    emphasize: (i) => (i === pembelianRows.length - 1 ? { color: BLACK, bold: true } : null),
   });
 
   // ------------------------------------------------------------------

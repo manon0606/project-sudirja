@@ -16,6 +16,26 @@ export type PembelianErrorCode =
   | "UNAUTHORIZED"
   | "INTERNAL_ERROR";
 
+export interface PembelianPecahanDTO {
+  id: number;
+  produkSatuanId: number;
+  satuanNama: string | null;
+  qty: number;
+  /** Gramasi/isi (mis. 250, 500, 750) — dasar alokasi harga beli. */
+  isiBase: number | null;
+  /** HPP per unit pecahan (hasil alokasi harga beli item). */
+  hargaBeliAlokasi: number;
+  subtotalAlokasi: number;
+  /** Harga jual satuan pecahan saat pembelian; null bila tidak diketahui. */
+  hargaJualSatuan: number | null;
+}
+
+export interface PembelianBahanDTO {
+  id: number;
+  namaBarang: string;
+  biaya: number;
+}
+
 export interface PembelianItemDTO {
   id: number;
   produkId: number | null;
@@ -28,6 +48,15 @@ export interface PembelianItemDTO {
   hargaJual: number;
   diskon: number;         // persen
   subtotal: number;       // setelah diskon (per baris)
+  /** Baris hasil pecahan/repack — kosong bila item langsung masuk satuan beli. */
+  pecahan: PembelianPecahanDTO[];
+  /** Toggle repack (desain V3.1) + target jumlah hasil repack. */
+  isRepack: boolean;
+  jumlahRepack: number;
+  /** Bahan kebutuhan repack (tidak masuk stok, menambah biaya & mengurangi laba). */
+  bahan: PembelianBahanDTO[];
+  /** Σ biaya bahan item ini (server-computed). */
+  biayaRepack: number;
 }
 
 export interface SupplierRingkas {
@@ -48,10 +77,20 @@ export interface PembelianDTO {
   createdAt: string;
   items: PembelianItemDTO[];
   /** Ringkasan (server-computed). */
-  totalPembelian: number;      // subtotal items (sebelum ppn)
+  totalPembelian: number;      // subtotal items + biaya repack (sebelum ppn)
+  totalBiayaRepack: number;    // Σ biaya bahan repack
   totalPpn: number;
   grandTotal: number;
   estimasiLaba: number;        // jika semua qty terjual dgn harga jual
+}
+
+export interface CreatePembelianPecahanInput {
+  produkSatuanId: number;
+  qty: number;
+  /** Gramasi/isi; dipakai untuk alokasi proporsional bila hargaBeliAlokasi kosong. */
+  isiBase?: number | null;
+  /** HPP per unit pecahan; kosong → alokasi otomatis proporsional. */
+  hargaBeliAlokasi?: number | null;
 }
 
 export interface CreatePembelianItemInput {
@@ -63,6 +102,18 @@ export interface CreatePembelianItemInput {
   hargaBeli: number;
   hargaJual: number;
   diskon?: number;
+  /** Bila diisi: stok masuk ke satuan-satuan pecahan, bukan ke produkSatuanId item. */
+  pecahan?: CreatePembelianPecahanInput[];
+  /** Toggle repack + target jumlah hasil (desain V3.1). */
+  isRepack?: boolean;
+  jumlahRepack?: number;
+  /** Bahan kebutuhan repack; biaya menambah biaya pembelian item. */
+  bahan?: CreatePembelianBahanInput[];
+}
+
+export interface CreatePembelianBahanInput {
+  namaBarang: string;
+  biaya: number;
 }
 
 export interface CreatePembelianInput {

@@ -94,3 +94,28 @@ Migrasi DB dijalankan manual via `mysql web_sudirja < db/migrations/*.sql`
   baris lain ditandai `(terpakai)` dan tidak bisa dipilih ulang.
 - Commerce: search berdasarkan nama pelanggan; bulk `Pilih Kurir (N)` (status
   *Menunggu Kurir*) dan `Selesaikan (N)` (status *Diantar*).
+- Pembelian — **produk baru inline**: tombol "Produk Baru" di modal pembelian
+  membuat produk + satuan (+ kategori/merk bila perlu) tanpa keluar form.
+- Pembelian — **pecahan/repack**: satu item beli (mis. 1 Ball) dapat punya N baris
+  pecahan (`pembelian_item_pecahan`); stok bertambah ke tiap satuan pecahan dan
+  **tidak** ke satuan beli. Harga beli item dialokasikan proporsional
+  `isi_base × qty` ke tiap pecahan; nilai manual per baris dihormati dan sisanya
+  ditampilkan sebagai sisa. Menghapus pembelian membalik stok semua pecahan.
+  Kolom `Satuan` pada bulk pembelian memilih satuan tujuan (kosong = satuan pertama);
+  kolom opsional `Pecahan` (`Satuan:Qty:Isi` dipisah `;`) membuat pecahan sekaligus;
+  satuan pecahan yang belum ada bisa dibuat inline dari panel (`+ Satuan baru…`).
+  Laba estimasi item berpecahan dihitung dari alokasi HPP per pecahan, bukan harga
+  beli satuan beli.
+- Pembelian — **Bahan Kebutuhan Repack** (desain V3.1): tiap item punya toggle
+  `Repack`, `Jumlah Repack`, dan daftar bahan (nama barang + biaya) yang tersimpan
+  di `pembelian_item_bahan`. Biaya bahan **tidak menambah stok** tetapi menambah
+  biaya pembelian item dan mengurangi laba; biaya ini juga jadi dasar alokasi HPP
+  pecahan. Ringkasan Total = Subtotal + Biaya Repack + PPn.
+- Pembelian — **produk baru + bahan**: panel Produk Baru mewajibkan satuan (boleh
+  satuan baru inline) dan dapat mengisi bahan repack; produk yang dibuat langsung
+  jadi item pembelian berikut bahannya.
+- Pembelian — produk yang belum ada di master: hasil pencarian kosong menampilkan
+  ajakan `Buat Produk Baru (satuan wajib)` sehingga produk otomatis dibuat di master.
+- Laporan — pembelian: ringkasan menambah baris `↳ termasuk biaya bahan repack`;
+  rincian pembelian menambah kolom `Biaya Repack` dan `Estimasi Laba` (+ baris TOTAL);
+  PDF laporan menyesuaikan kolom & baris yang sama.

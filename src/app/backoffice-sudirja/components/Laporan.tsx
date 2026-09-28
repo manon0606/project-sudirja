@@ -208,13 +208,14 @@ export default function Laporan() {
                             <td className="py-2 text-right font-medium" style={{ color: '#27b446' }}>{formatRp(report.summary.totalPemasukan)}</td>
                           </tr>
                           {([
-                            ["Total Pembelian (PO)", report.summary.totalPembelian],
-                            ["Konsinyasi dibayar ke supplier", report.summary.totalKonsinyasiDibayar],
-                            ["+ Cash Out", report.summary.totalCashOut],
-                          ] as Array<[string, number]>).map(([l, v]) => (
+                            ["Total Pembelian (PO)", report.summary.totalPembelian, false],
+                            ["↳ termasuk biaya bahan repack", report.rincian.pembelian.reduce((a, r) => a + r.biayaRepack, 0), true],
+                            ["Konsinyasi dibayar ke supplier", report.summary.totalKonsinyasiDibayar, false],
+                            ["+ Cash Out", report.summary.totalCashOut, false],
+                          ] as Array<[string, number, boolean]>).map(([l, v, sub]) => (
                             <tr key={l} className="border-b border-gray-100">
-                              <td className="py-2" style={{ color: '#1a0408' }}>{l}</td>
-                              <td className="py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(v)}</td>
+                              <td className="py-2 text-sm" style={{ color: '#1a0408', opacity: sub ? 0.65 : 1 }}>{l}</td>
+                              <td className="py-2 text-right text-sm" style={{ color: '#1a0408', opacity: sub ? 0.65 : 1 }}>{formatRp(v)}</td>
                             </tr>
                           ))}
                           <tr className="border-b border-gray-100">
@@ -262,24 +263,38 @@ export default function Laporan() {
                     <table className="w-full">
                       <thead style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
                         <tr>
-                          {["No. Pembelian", "Tanggal", "Supplier", "Subtotal", "PPN", "Grand Total"].map((h) => (
+                          {["No. Pembelian", "Tanggal", "Supplier", "Subtotal", "Biaya Repack", "PPN", "Grand Total", "Estimasi Laba"].map((h) => (
                             <th key={h} className="px-5 py-3 text-left text-xs font-semibold" style={{ color: '#000' }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {report.rincian.pembelian.length === 0 ? (
-                          <tr><td colSpan={6} className="px-5 py-10 text-center text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Tidak ada pembelian pada periode ini.</td></tr>
+                          <tr><td colSpan={8} className="px-5 py-10 text-center text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Tidak ada pembelian pada periode ini.</td></tr>
                         ) : report.rincian.pembelian.map((r) => (
                           <tr key={r.noPembelian} className="border-b border-gray-100 hover:bg-gray-50">
                             <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noPembelian}</td>
                             <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM yyyy")}</td>
                             <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.supplier}</td>
                             <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{formatRp(r.totalPembelian)}</td>
+                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408', opacity: r.biayaRepack > 0 ? 1 : 0.5 }}>{r.biayaRepack > 0 ? formatRp(r.biayaRepack) : "-"}</td>
                             <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{r.ppn > 0 ? `${r.ppn}%` : "-"}</td>
                             <td className="px-5 py-2 text-sm text-right font-medium" style={{ color: '#e40b18' }}>{formatRp(r.grandTotal)}</td>
+                            <td className="px-5 py-2 text-sm text-right" style={{ color: r.estimasiLaba >= 0 ? '#27b446' : '#e40b18' }}>{formatRp(r.estimasiLaba)}</td>
                           </tr>
                         ))}
+                        {report.rincian.pembelian.length > 0 && (
+                          <tr style={{ backgroundColor: '#fcfaff', borderTop: '2px solid #e5e7eb' }}>
+                            <td className="px-5 py-3 text-sm font-semibold" style={{ color: '#000' }}>TOTAL ({report.rincian.pembelian.length} pembelian)</td>
+                            <td className="px-5 py-3" />
+                            <td className="px-5 py-3" />
+                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: '#000' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.totalPembelian, 0))}</td>
+                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: '#000' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.biayaRepack, 0))}</td>
+                            <td className="px-5 py-3" />
+                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: '#e40b18' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.grandTotal, 0))}</td>
+                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: report.rincian.pembelian.reduce((a, r) => a + r.estimasiLaba, 0) >= 0 ? '#27b446' : '#e40b18' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.estimasiLaba, 0))}</td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   )}

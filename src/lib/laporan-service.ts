@@ -33,6 +33,8 @@ interface PembelianRow2 extends RowDataPacket {
   supplier_nama: string;
   ppn: string | number;
   subtotal_total: string | number;
+  biaya_repack: string | number;
+  estimasi_laba: string | number;
 }
 
 interface KonsinyasiRow2 extends RowDataPacket {
@@ -53,37 +55,57 @@ export function parseLaporanParams(q: URLSearchParams) {
   return { tipe, dateFrom, dateTo };
 }
 
-/** Format Date → string "YYYY-MM-DD HH:mm:ss" agar kompatibel dgn kolom datetime & timezone DB. */
-function fmtDt(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+/** Offset WIB tetap (UTC+7). */
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/** Instan UTC dari wall-clock WIB (mis. 28 Sep 00:00 WIB → 27 Sep 17:00 UTC). */
+function wibInstant(y: number, m: number, d: number, h = 0, mi = 0, s = 0, ms = 0): Date {
+  return new Date(Date.UTC(y, m, d, h, mi, s, ms) - WIB_OFFSET_MS);
 }
 
-function resolveRange(params: ReturnType<typeof parseLaporanParams>, today = new Date()) {
+/** Format Date → "YYYY-MM-DD HH:mm:ss" dalam UTC, sesuai penyimpanan kolom datetime DB. */
+function fmtDt(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+function resolveRange(params: ReturnType<typeof parseLaporanParams>, now = new Date()) {
+  // Wall-clock "hari ini" menurut WIB (bukan UTC server).
+  const wibNow = new Date(now.getTime() + WIB_OFFSET_MS);
+  const todayY = wibNow.getUTCFullYear();
+  const todayM = wibNow.getUTCMonth();
+  const todayD = wibNow.getUTCDate();
+  const parseYmd = (s: string): [number, number, number] => {
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return [todayY, todayM, todayD];
+    return [Number(m[1]), Number(m[2]) - 1, Number(m[3])];
+  };
+
   let from: Date;
   let to: Date;
   switch (params.tipe) {
     case "monthly": {
-      const y = Number(params.dateFrom?.slice(0, 4)) || today.getFullYear();
-      const m = (Number(params.dateFrom?.slice(5, 7)) || today.getMonth() + 1) - 1;
-      from = new Date(y, m, 1);
-      to = new Date(y, m + 1, 0, 23, 59, 59, 999);
+      const [y, m] = params.dateFrom ? parseYmd(params.dateFrom) : [todayY, todayM, 1];
+      from = wibInstant(y, m, 1);
+      to = wibInstant(y, m + 1, 0, 23, 59, 59, 999);
       break;
     }
     case "yearly": {
-      const y = Number(params.dateFrom?.slice(0, 4)) || today.getFullYear();
-      from = new Date(y, 0, 1);
-      to = new Date(y, 11, 31, 23, 59, 59, 999);
+      const [y] = params.dateFrom ? parseYmd(params.dateFrom) : [todayY, 0, 1];
+      from = wibInstant(y, 0, 1);
+      to = wibInstant(y, 11, 31, 23, 59, 59, 999);
       break;
     }
     default: {
       if (params.tipe === "daily") {
-        const d = params.dateFrom || today.toISOString().slice(0, 10);
-        from = new Date(`${d}T00:00:00`);
-        to = new Date(`${d}T23:59:59.999`);
+        const [y, m, d] = parseYmd(params.dateFrom);
+        from = wibInstant(y, m, d);
+        to = wibInstant(y, m, d, 23, 59, 59, 999);
       } else {
-        from = params.dateFrom ? new Date(`${params.dateFrom}T00:00:00`) : new Date(today.getFullYear(), today.getMonth(), 1);
-        to = params.dateTo ? new Date(`${params.dateTo}T23:59:59.999`) : new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+        const [fy, fm, fd] = params.dateFrom ? parseYmd(params.dateFrom) : [todayY, todayM, 1];
+        const [ty, tm, td] = params.dateTo ? parseYmd(params.dateTo) : [todayY, todayM + 1, 0];
+        from = wibInstant(fy, fm, fd);
+        to = wibInstant(ty, tm, td, 23, 59, 59, 999);
       }
     }
   }
@@ -110,7 +132,18 @@ async function queryPesanan(from: string, to: string): Promise<PesananRow2[]> {
 async function queryPembelian(from: string, to: string): Promise<PembelianRow2[]> {
   const { rows } = await query<PembelianRow2[]>(
     `SELECT pb.no_pembelian, pb.tanggal, s.nama AS supplier_nama, pb.ppn,
-            (SELECT COALESCE(SUM(pi.subtotal),0) FROM pembelian_item pi WHERE pi.pembelian_id = pb.id) AS subtotal_total
+            (SELECT COALESCE(SUM(pi.subtotal),0) FROM pembelian_item pi WHERE pi.pembelian_id = pb.id) AS subtotal_total,
+            (SELECT COALESCE(SUM(b.biaya),0) FROM pembelian_item_bahan b
+               JOIN pembelian_item pi ON pi.id = b.pembelian_item_id
+              WHERE pi.pembelian_id = pb.id) AS biaya_repack,
+            (SELECT COALESCE(SUM(
+                CASE WHEN EXISTS (SELECT 1 FROM pembelian_item_pecahan pc WHERE pc.pembelian_item_id = pi.id)
+                     THEN (SELECT COALESCE(SUM((pc2.harga_jual_satuan - pc2.harga_beli_alokasi) * pc2.qty),0)
+                             FROM pembelian_item_pecahan pc2 WHERE pc2.pembelian_item_id = pi.id)
+                     ELSE (pi.harga_jual - pi.harga_beli * (1 - pi.diskon / 100)) * pi.qty
+                END
+                - (SELECT COALESCE(SUM(b2.biaya),0) FROM pembelian_item_bahan b2 WHERE b2.pembelian_item_id = pi.id)
+              ),0) FROM pembelian_item pi WHERE pi.pembelian_id = pb.id) AS estimasi_laba
      FROM pembelian pb
      LEFT JOIN supplier s ON s.id = pb.supplier_id
      WHERE pb.tanggal >= ? AND pb.tanggal <= ?
@@ -159,7 +192,9 @@ export async function generateLaporan(params: ReturnType<typeof parseLaporanPara
 
   // Rincian pembelian.
   const pembelian: LaporanPembelianRow[] = pembelianRows.map((pb) => {
-    const totalPembelian = Number(pb.subtotal_total);
+    const subtotalItems = Number(pb.subtotal_total);
+    const biayaRepack = Number(pb.biaya_repack ?? 0);
+    const totalPembelian = Math.round((subtotalItems + biayaRepack) * 100) / 100;
     const ppn = Number(pb.ppn);
     const grandTotal = totalPembelian + Math.round(totalPembelian * ppn) / 100;
     return {
@@ -167,9 +202,10 @@ export async function generateLaporan(params: ReturnType<typeof parseLaporanPara
       tanggal: iso(pb.tanggal),
       supplier: pb.supplier_nama ?? "",
       totalPembelian,
+      biayaRepack,
       ppn,
       grandTotal,
-      estimasiLaba: 0, // dihitung di laporan utk kelak — placeholder diset 0 utk sekarang
+      estimasiLaba: Number(pb.estimasi_laba ?? 0),
     };
   });
 

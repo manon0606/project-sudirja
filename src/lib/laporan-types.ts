@@ -42,10 +42,11 @@ export interface LaporanPembelianRow {
   noPembelian: string;
   tanggal: string;
   supplier: string;
-  totalPembelian: number;
+  totalPembelian: number;   // subtotal item + biaya bahan repack
+  biayaRepack: number;      // Σ biaya bahan repack
   ppn: number;
   grandTotal: number;
-  estimasiLaba: number;
+  estimasiLaba: number;     // memakai alokasi pecahan & dikurangi biaya repack
 }
 
 export interface LaporanKonsinyasiRow {
