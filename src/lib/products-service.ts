@@ -596,6 +596,10 @@ export async function syncProdukSatuan(
   if (toInsert.length > 0) {
     await insertProdukSatuan(conn, produkId, toInsert);
   }
+  // Save produk SELALU menjamin tiap satuan punya baris stok (idempoten,
+  // INSERT..SELECT hanya untuk yang belum ada) — mis. baris stok yang pernah
+  // dihapus lewat fitur "Hapus Stok" ikut dibuat ulang saat save produk.
+  await ensureStokRows(conn, produkId);
 }
 
 export { kodeItemExists };
