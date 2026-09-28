@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AdminProfile } from "@/lib/auth-types";
+import { firstAllowedPath } from "../components/AdminSidebar";
 
 function LogoMark() {
   return (
@@ -51,7 +52,7 @@ export default function BackofficeLoginPage() {
             adminId: admin.id,
           }),
         );
-        router.push("/backoffice-sudirja/dashboard");
+        router.push(firstAllowedPath(admin.permissions ?? [], admin.isSuperadmin));
         return;
       }
 

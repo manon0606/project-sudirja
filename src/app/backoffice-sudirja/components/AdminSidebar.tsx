@@ -38,6 +38,18 @@ const menu: MenuItem[] = [
   { id: "settings", label: "Settings", icon: "settings", path: `${BASE}/settings` },
 ];
 
+/**
+ * Halaman pertama yang boleh diakses user — dipakai redirect setelah login
+ * dan guard ACL (user dengan akses terbatas jangan dibuang ke dashboard
+ * bila ia tidak punya akses ke sana).
+ */
+export function firstAllowedPath(permissions: string[], isSuperadmin: boolean): string {
+  for (const item of menu) {
+    if (isSuperadmin || permissions.includes(item.id)) return item.path ?? `${BASE}/dashboard`;
+  }
+  return `${BASE}/dashboard`;
+}
+
 function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: string }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   const icons: Partial<Record<IconName, React.ReactNode>> = {
@@ -104,7 +116,7 @@ export default function AdminSidebar({ activePage = "dashboard" }: { activePage?
     const mod = moduleOfPage[activePage];
     if (!mod || activePage === "dashboard") return;
     const allowed = currentUser.isSuperadmin || (currentUser.permissions ?? []).includes(mod);
-    if (!allowed) router.replace(`${BASE}/dashboard`);
+    if (!allowed) router.replace(firstAllowedPath(currentUser.permissions ?? [], currentUser.isSuperadmin));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePage, currentUser.isSuperadmin, permsKey]);
 

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import AdminSidebar from "../components/AdminSidebar";
+import AdminSidebar, { firstAllowedPath } from "../components/AdminSidebar";
 import { useUser } from "../components/useUser";
+import { useRouter } from "next/navigation";
 import { getDashboard } from "@/lib/dashboard-api";
 import type { DashboardDTO } from "@/lib/dashboard-types";
 import { format } from "date-fns";
@@ -40,6 +41,14 @@ function Card({ title, value, growth, label = "dari periode sebelumnya" }: { tit
 
 export default function DashboardPage() {
   const user = useUser();
+  const router = useRouter();
+  // Index dashboard hanya untuk yang punya akses "dashboard"; user dengan
+  // akses terbatas (mis. kasir + pesanan) langsung ke halaman pertamanya.
+  useEffect(() => {
+    if (user.username && !user.isSuperadmin && !user.permissions.includes("dashboard")) {
+      router.replace(firstAllowedPath(user.permissions, user.isSuperadmin));
+    }
+  }, [user, router]);
   const [range, setRange] = useState<Range>("7");
   const [data, setData] = useState<DashboardDTO | null>(null);
   const [loading, setLoading] = useState(true);

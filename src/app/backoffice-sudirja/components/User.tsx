@@ -346,7 +346,11 @@ function RoleSection() {
 
   const togglePermGroup = (codes: string[], perms: string[], setPerms: (v: string[]) => void) => {
     const allSel = codes.every((c) => perms.includes(c));
-    setPerms(FEATURE_CODES.filter((c) => (allSel ? !codes.includes(c) : perms.includes(c) || codes.includes(c))).map((c) => c));
+    // Uncheck grup: buang hanya kode grup, pilihan lain dipertahankan —
+    // JANGAN menyalakan kode non-grup yang belum terpilih (bug lama: semua menyala).
+    setPerms(allSel
+      ? perms.filter((c) => !codes.includes(c))
+      : FEATURE_CODES.filter((c) => perms.includes(c) || codes.includes(c)).map((c) => c));
   };
 
   const renderPermEditor = (perms: string[], setPerms: (v: string[]) => void) => {

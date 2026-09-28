@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Settings from "../components/Settings";
 import { useUser } from "../components/useUser";
+import { firstAllowedPath } from "../components/AdminSidebar";
 
 export default function SettingsPage() {
   const user = useUser();
@@ -12,9 +13,9 @@ export default function SettingsPage() {
   // Hanya superadmin yang boleh mengakses settings (API key).
   useEffect(() => {
     if (!user.isSuperadmin && user.username) {
-      router.replace("/backoffice-sudirja/dashboard");
+      router.replace(firstAllowedPath(user.permissions, user.isSuperadmin));
     }
-  }, [user.isSuperadmin, user.username, router]);
+  }, [user.isSuperadmin, user.username, user.permissions, router]);
 
   if (!user.isSuperadmin) {
     return (
@@ -26,7 +27,7 @@ export default function SettingsPage() {
             Halaman Settings (API key) hanya dapat diakses oleh Super Admin.
           </p>
           <button
-            onClick={() => router.push("/backoffice-sudirja/dashboard")}
+            onClick={() => router.push(firstAllowedPath(user.permissions, user.isSuperadmin))}
             className="mt-6 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: '#27b446' }}
           >
