@@ -779,11 +779,11 @@ function OrderDetailModal({ order, onClose, onRetur }: OrderDetailModalProps) {
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 flex items-center gap-3">
-          {/* Retur — left-anchored secondary action */}
-          {order.status !== "Dibatalkan" && order.status !== "Dikembalikan" && (
+          {/* Retur — hanya untuk pesanan berstatus Selesai */}
+          {order.status === "Selesai" && (
             <button
               onClick={onRetur}
-              className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-colors hover:bg-green-50"
+              className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-colors hover:bg-orange-50"
               style={{ borderColor: '#27b446', color: '#27b446' }}
             >
               <RotateCcw className="w-4 h-4" />

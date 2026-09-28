@@ -490,84 +490,94 @@ function ReturnDetailModal({ data, onClose }: { data: ReturDTO; onClose: () => v
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
-          {/* Meta */}
-          <div className="grid grid-cols-2 gap-3">
+        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
+          {/* Meta grid */}
+          <div className="grid grid-cols-2 gap-4">
             {[
-              { label: "No. Pesanan Asal", value: data.noPesanan },
-              { label: "Tanggal Retur", value: fmtWib(data.createdAt, "dd MMMM yyyy, HH:mm") },
-              { label: "Kasir", value: data.kasirNama || "-" },
-              { label: "Jenis Retur", value: typeLabel(data.tipe) },
-              { label: "Alasan", value: data.alasan },
-              { label: "Status", value: data.status },
-            ].map(({ label, value }) => (
+              { label: "No. Retur", value: data.noRetur, color: '#27b446' as string | undefined },
+              { label: "No. Pesanan Asal", value: data.noPesanan, color: '#27b446' as string | undefined },
+              { label: "Tanggal Retur", value: fmtWib(data.createdAt, "dd MMMM yyyy, HH:mm"), color: undefined },
+              { label: "Kasir", value: data.kasirNama ? `${data.kasirNama} (${data.kasirUsername})` : "-", color: undefined },
+            ].map(({ label, value, color }) => (
               <div key={label} className="p-3 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
                 <p className="text-xs mb-1" style={{ color: '#1a0408', opacity: 0.5 }}>{label}</p>
-                <p style={{ color: '#000000', fontWeight: 500 }}>{value}</p>
+                <p style={{ color: color || '#000000', fontWeight: 500 }}>{value}</p>
               </div>
             ))}
           </div>
 
-          {data.catatan && (
-            <div className="p-3 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
-              <p className="text-xs mb-1" style={{ color: '#1a0408', opacity: 0.5 }}>Catatan</p>
-              <p className="text-sm" style={{ color: '#1a0408' }}>{data.catatan}</p>
+          {/* Jenis Retur + Status */}
+          <div className="flex gap-4">
+            <div className="flex-1 p-3 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+              <p className="text-xs mb-2" style={{ color: '#1a0408', opacity: 0.5 }}>Jenis Retur</p>
+              <span className="px-3 py-1 rounded-full text-sm" style={{ backgroundColor: typeBg, color: typeText }}>
+                {typeLabel(data.tipe)}
+              </span>
             </div>
-          )}
+            <div className="flex-1 p-3 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+              <p className="text-xs mb-2" style={{ color: '#1a0408', opacity: 0.5 }}>Status</p>
+              <span className="px-3 py-1 rounded-full text-sm" style={{ backgroundColor: statusBg, color: statusText }}>
+                {data.status}
+              </span>
+            </div>
+          </div>
+
+          {/* Alasan */}
+          <div className="p-4 rounded-xl" style={{ backgroundColor: 'rgba(39,180,70,0.07)', border: '1px solid #fed7aa' }}>
+            <p className="text-xs mb-1" style={{ color: '#27b446', opacity: 0.7 }}>Alasan Retur</p>
+            <p style={{ color: '#000000', fontWeight: 500 }}>{data.alasan}</p>
+            {data.catatan && (
+              <p className="text-sm mt-2" style={{ color: '#1a0408', opacity: 0.7 }}>{data.catatan}</p>
+            )}
+          </div>
 
           {/* Items */}
           <div>
-            <p className="mb-2 text-sm font-medium" style={{ color: '#000000' }}>Produk Diretur</p>
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <h3 className="mb-3" style={{ color: '#000000' }}>Produk yang Diretur</h3>
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
               <table className="w-full">
                 <thead style={{ backgroundColor: '#f9fafb' }}>
                   <tr>
-                    <th className="px-3 py-2 text-left text-sm" style={{ color: '#000000' }}>Produk</th>
-                    <th className="px-3 py-2 text-center text-sm" style={{ color: '#000000' }}>Qty</th>
-                    <th className="px-3 py-2 text-right text-sm" style={{ color: '#000000' }}>Subtotal</th>
+                    <th className="px-4 py-3 text-left" style={{ color: '#000000' }}>Produk</th>
+                    <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Qty</th>
+                    <th className="px-4 py-3 text-right" style={{ color: '#000000' }}>Harga</th>
+                    <th className="px-4 py-3 text-right" style={{ color: '#000000' }}>Subtotal</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.items.map((item, i) => (
                     <tr key={i} className="border-t border-gray-100">
-                      <td className="px-3 py-2 text-sm" style={{ color: '#1a0408' }}>{item.namaProduk}</td>
-                      <td className="px-3 py-2 text-center text-sm" style={{ color: '#1a0408' }}>{item.qty}</td>
-                      <td className="px-3 py-2 text-right text-sm" style={{ color: '#1a0408' }}>
+                      <td className="px-4 py-3" style={{ color: '#1a0408' }}>{item.namaProduk}</td>
+                      <td className="px-4 py-3 text-center" style={{ color: '#1a0408' }}>{item.qty}</td>
+                      <td className="px-4 py-3 text-right" style={{ color: '#1a0408' }}>
+                        Rp {item.harga.toLocaleString('id-ID')}
+                      </td>
+                      <td className="px-4 py-3 text-right" style={{ color: '#1a0408' }}>
                         Rp {item.subtotal.toLocaleString('id-ID')}
                       </td>
                     </tr>
                   ))}
-                  <tr className="border-t-2 border-gray-200">
-                    <td colSpan={2} className="px-3 py-2 text-sm font-semibold text-right" style={{ color: '#000000' }}>
-                      Total Refund
+                </tbody>
+                <tfoot>
+                  <tr style={{ backgroundColor: 'rgba(39,180,70,0.07)', borderTop: '2px solid #fed7aa' }}>
+                    <td colSpan={3} className="px-4 py-3 text-right font-semibold" style={{ color: '#000000' }}>
+                      Total Pengembalian
                     </td>
-                    <td className="px-3 py-2 text-right font-bold" style={{ color: '#27b446' }}>
+                    <td className="px-4 py-3 text-right font-bold" style={{ color: '#27b446', fontSize: '16px' }}>
                       Rp {data.totalRefund.toLocaleString('id-ID')}
                     </td>
                   </tr>
-                </tbody>
+                </tfoot>
               </table>
             </div>
-          </div>
-
-          {/* Badges */}
-          <div className="flex gap-2">
-            <span className="px-3 py-1 rounded-full text-sm"
-              style={{ backgroundColor: typeBg, color: typeText }}>
-              {typeLabel(data.tipe)}
-            </span>
-            <span className="px-3 py-1 rounded-full text-sm"
-              style={{ backgroundColor: statusBg, color: statusText }}>
-              {data.status}
-            </span>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200">
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
           <button
             onClick={onClose}
-            className="w-full py-3 rounded-lg border-2 transition-colors hover:bg-red-50"
+            className="px-8 py-3 rounded-lg border-2 transition-colors"
             style={{ borderColor: '#e40b18', color: '#e40b18' }}
           >
             Tutup
