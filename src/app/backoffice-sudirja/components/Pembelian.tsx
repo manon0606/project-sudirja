@@ -782,31 +782,45 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
             {/* Layout 2 kolom ala desain V3.1: kiri info & produk, kanan Ringkasan Total */}
             <div className={`grid grid-cols-1 gap-5 ${items.length > 0 ? "lg:grid-cols-3" : ""}`}>
             <div className={`space-y-5 ${items.length > 0 ? "lg:col-span-2" : ""}`}>
-            {/* Info dasar */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Info dasar (3 kolom ala desain V3.1: Nomor | Tanggal | Supplier) */}
+            <div className="grid grid-cols-3 gap-4">
               <label>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal *</span>
+                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>
+                  Nomor Pembelian <span style={{ color: '#e40b18' }}>*</span>
+                </span>
+                <input type="text" value="Otomatis saat disimpan" disabled
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 cursor-not-allowed"
+                  style={{ color: '#1a0408', backgroundColor: '#f9fafb', opacity: 0.8 }} />
+              </label>
+              <label>
+                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>
+                  Tanggal <span style={{ color: '#e40b18' }}>*</span>
+                </span>
                 <DatePicker value={tanggal} onChange={setTanggal} placeholder="Pilih tanggal"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
               </label>
               <label>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Supplier *</span>
+                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>
+                  Supplier <span style={{ color: '#e40b18' }}>*</span>
+                </span>
                 <div className="relative">
                   <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
                     className="appearance-none w-full pl-3 pr-9 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer" style={inputStyle}>
-                    <option value="">-- Pilih --</option>
-                    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.nama} ({s.kode})</option>)}
+                    <option value="">Pilih Supplier</option>
+                    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.nama}</option>)}
                   </select>
                   <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
                 </div>
               </label>
+            </div>
+            <div className="flex flex-wrap items-end gap-4">
               <label>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>PPN (%)</span>
+                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>PPn (%)</span>
                 <input type="number" min="0" max="100" value={ppn} onChange={(e) => setPpn(e.target.value)}
                   onWheel={(e) => e.currentTarget.blur()}
                   className="w-32 px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
               </label>
-              <label>
+              <label className="flex-1 min-w-[220px]">
                 <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Catatan</span>
                 <input value={catatan} onChange={(e) => setCatatan(e.target.value)} placeholder="Catatan (opsional)"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
@@ -816,7 +830,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
             {/* Cari produk (master) + quick-create produk baru */}
             <div>
               <div className="flex items-center justify-between gap-3 mb-1">
-                <span className="text-sm" style={{ color: '#000000' }}>Cari Produk (dari produk master)</span>
+                <span className="text-sm" style={{ color: '#000000' }}>Tambah Produk</span>
                 <button type="button" onClick={toggleNewProduk}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-sm transition-colors hover:bg-green-50"
                   style={{ borderColor: '#27b446', color: '#27b446' }}>
@@ -826,7 +840,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
               <div className="relative" ref={searchBoxRef}>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
                 <input value={searchQ} onChange={(e) => { setSearchQ(e.target.value); setShowResults(true); }} onFocus={() => setShowResults(true)}
-                  placeholder="Ketik SKU atau nama produk..."
+                  placeholder="Cari produk berdasarkan SKU atau nama..."
                   className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
                 {showResults && results.length > 0 && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-56 overflow-y-auto">
@@ -836,10 +850,10 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                         <div className="flex justify-between items-center">
                           <div>
                             <p style={{ color: '#1a0408' }}>{p.nama}</p>
-                            <p className="text-xs font-mono" style={{ color: '#27b446' }}>{p.sku}</p>
+                            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>SKU: {p.sku}</p>
                           </div>
-                          <p className="text-sm" style={{ color: '#1a0408', opacity: 0.7 }}>
-                            Harga jual: {p.satuan.length ? formatRp(Math.min(...p.satuan.map((s) => s.harga))) : "—"}
+                          <p style={{ color: '#27b446' }}>
+                            {p.satuan.length ? formatRp(Math.min(...p.satuan.map((s) => s.harga))) : "—"}
                           </p>
                         </div>
                       </button>
@@ -924,7 +938,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 
             {/* Items */}
             <div>
-              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Item Pembelian ({items.length})</span>
+              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Produk Dipilih ({items.length})</span>
               {items.length === 0 ? (
                 <div className="p-6 text-center rounded-lg border border-dashed" style={{ borderColor: '#d1d5db' }}>
                   <p className="text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Belum ada produk. Cari & tambahkan produk di atas.</p>
