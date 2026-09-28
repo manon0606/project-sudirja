@@ -8,7 +8,6 @@ import {
   listStok,
   getStokHistory,
   updateStok,
-  deleteStok,
   bulkUpdateStok,
 } from "@/lib/stok-api";
 import type { StokDTO, StokHistoryDTO, StokSatuanDTO } from "@/lib/stok-types";
@@ -36,7 +35,6 @@ export default function Stok() {
 
   // Modals
   const [editingStock, setEditingStock] = useState<StokDTO | null>(null);
-  const [deletingStock, setDeletingStock] = useState<StokDTO | null>(null);
   const [showBulkUploadModal, setShowBulkUploadModal] = useState(false);
 
   useEffect(() => {
@@ -364,14 +362,6 @@ export default function Stok() {
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={() => setDeletingStock(product)}
-                                className="p-2 rounded-lg transition-colors hover:bg-gray-100"
-                                style={{ color: '#e40b18' }}
-                                title="Hapus Stok"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -488,17 +478,6 @@ export default function Stok() {
           onClose={() => setEditingStock(null)}
           onSave={handleUpdateStock}
           onHistory={(sku) => getStokHistory(sku)}
-        />
-      )}
-
-      {deletingStock && (
-        <DeleteStockModal
-          product={deletingStock}
-          onClose={() => setDeletingStock(null)}
-          onDeleted={() => {
-            setDeletingStock(null);
-            void load();
-          }}
         />
       )}
 
@@ -1117,79 +1096,6 @@ function BulkUploadStockModal({ onClose, onDone }: BulkUploadStockModalProps) {
             {processing ? "Memproses..." : "Upload & Proses"}
           </button>
         </div>
-    </Modal>
-  );
-}
-
-// Delete Stock Confirm Modal — sesuai desain V3.1
-interface DeleteStockModalProps {
-  product: StokDTO;
-  onClose: () => void;
-  onDeleted: () => void;
-}
-
-function DeleteStockModal({ product, onClose, onDeleted }: DeleteStockModalProps) {
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleConfirm = async () => {
-    setDeleting(true);
-    setError("");
-    try {
-      await deleteStok(product.sku);
-      onDeleted();
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Gagal menghapus data stok.");
-      setDeleting(false);
-    }
-  };
-
-  return (
-    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(228, 11, 24, 0.1)' }}>
-            <AlertTriangle className="w-6 h-6" style={{ color: '#e40b18' }} />
-          </div>
-          <div>
-            <h2 style={{ color: '#000000' }}>Konfirmasi Hapus Stok</h2>
-            <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
-              Tindakan ini tidak dapat dibatalkan
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-6 py-4">
-        <p style={{ color: '#1a0408' }}>
-          Apakah Anda yakin ingin menghapus data stok produk{' '}
-          <span style={{ color: '#000000' }}>{product.nama}</span> ({product.sku})?
-        </p>
-        <p className="mt-2 text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
-          Data stok yang sudah dihapus tidak dapat dikembalikan lagi.
-        </p>
-        {error && (
-          <p className="mt-2 text-sm" style={{ color: '#e40b18' }}>{error}</p>
-        )}
-      </div>
-
-      <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
-        <button
-          onClick={onClose}
-          className="flex-1 py-3 rounded-lg border transition-colors"
-          style={{ borderColor: '#e5e7eb', color: '#1a0408' }}
-        >
-          Batal
-        </button>
-        <button
-          onClick={handleConfirm}
-          disabled={deleting}
-          className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-          style={{ backgroundColor: '#e40b18' }}
-        >
-          {deleting ? "Menghapus..." : "Hapus"}
-        </button>
-      </div>
     </Modal>
   );
 }

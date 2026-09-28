@@ -360,29 +360,6 @@ export async function updateStokBySku(sku: string, input: StokMutationInput): Pr
   return getStokBySku(sku);
 }
 
-/**
- * Hapus data stok produk (semua satuan + riwayat, cascade) — fitur "Hapus Stok".
- * Baris `produk_satuan` TIDAK disentuh (satuan melekat di produk); stok bisa
- * dibuat ulang lewat edit stok / mutasi berikutnya.
- */
-export async function deleteStokBySku(sku: string): Promise<boolean> {
-  return withTransaction<boolean>(async (conn) => {
-    const [produkRows] = await conn.query<RowDataPacket[]>(
-      `SELECT id FROM produk WHERE sku = ? LIMIT 1`,
-      [sku],
-    );
-    const produk = (produkRows as Array<{ id: number }>)[0];
-    if (!produk) return false;
-    await conn.query(
-      `DELETE st FROM stok st
-       JOIN produk_satuan ps ON ps.id = st.produk_satuan_id
-       WHERE ps.produk_id = ?`,
-      [produk.id],
-    );
-    return true;
-  });
-}
-
 export class StokValidationError extends Error {
   code: string;
   constructor(code: string, message: string) {

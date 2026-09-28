@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { ok, fail, requireAdmin } from "@/lib/api-helpers";
-import { getStokBySku, updateStokBySku, deleteStokBySku, StokValidationError } from "@/lib/stok-service";
+import { getStokBySku, updateStokBySku, StokValidationError } from "@/lib/stok-service";
 import type { StokErrorCode } from "@/lib/stok-types";
 
 const STOK_ERRORS: Record<string, StokErrorCode> = {
@@ -94,21 +94,6 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       return fail(422, STOK_ERRORS[error.code] ?? "VALIDATION_ERROR", error.message);
     }
     console.error("[stok/update] error:", error);
-    return fail(500, "INTERNAL_ERROR", "Terjadi kesalahan server. Coba lagi nanti.");
-  }
-}
-
-/** DELETE /stok/[sku] — hapus data stok produk (semua satuan + riwayatnya). */
-export async function DELETE(_request: NextRequest, ctx: Ctx) {
-  const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
-  const { sku } = await ctx.params;
-  try {
-    const deleted = await deleteStokBySku(sku);
-    if (!deleted) return fail(404, "NOT_FOUND", `Produk ${sku} tidak ditemukan.`);
-    return ok({ deleted: true });
-  } catch (error) {
-    console.error("[stok/delete] error:", error);
     return fail(500, "INTERNAL_ERROR", "Terjadi kesalahan server. Coba lagi nanti.");
   }
 }
