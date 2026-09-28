@@ -46,7 +46,7 @@ export interface LaporanPembelianRow {
   biayaRepack: number;      // Σ biaya bahan repack
   ppn: number;
   grandTotal: number;
-  estimasiLaba: number;     // memakai alokasi pecahan & dikurangi biaya repack
+  estimasiLaba: number;     // memakai alokasi pecahan (alokasi sudah termasuk biaya repack)
 }
 
 export interface LaporanKonsinyasiRow {

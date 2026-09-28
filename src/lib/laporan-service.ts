@@ -140,9 +140,10 @@ async function queryPembelian(from: string, to: string): Promise<PembelianRow2[]
                 CASE WHEN EXISTS (SELECT 1 FROM pembelian_item_pecahan pc WHERE pc.pembelian_item_id = pi.id)
                      THEN (SELECT COALESCE(SUM((pc2.harga_jual_satuan - pc2.harga_beli_alokasi) * pc2.qty),0)
                              FROM pembelian_item_pecahan pc2 WHERE pc2.pembelian_item_id = pi.id)
+                     /* Alokasi HPP pecahan sudah memuat biaya bahan → jangan dikurangi lagi. */
                      ELSE (pi.harga_jual - pi.harga_beli * (1 - pi.diskon / 100)) * pi.qty
+                          - (SELECT COALESCE(SUM(b2.biaya),0) FROM pembelian_item_bahan b2 WHERE b2.pembelian_item_id = pi.id)
                 END
-                - (SELECT COALESCE(SUM(b2.biaya),0) FROM pembelian_item_bahan b2 WHERE b2.pembelian_item_id = pi.id)
               ),0) FROM pembelian_item pi WHERE pi.pembelian_id = pb.id) AS estimasi_laba
      FROM pembelian pb
      LEFT JOIN supplier s ON s.id = pb.supplier_id

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, useSyncExternalStore, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useSyncExternalStore, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import DatePicker from "./DatePicker";
 import Modal from "./Modal";
@@ -609,11 +609,13 @@ export default function Laporan() {
 // Modal lihat laporan (detail, mengikuti desain V3.1)
 // ---------------------------------------------------------------------------
 
-/** Tanggal periode laporan (YYYY-MM-DD / ISO) → Date lokal untuk segmentasi. */
+/** Tanggal periode laporan (ISO UTC dari API / YYYY-MM-DD) → Date lokal (WIB) untuk segmentasi. */
 function parsePeriode(value: string): Date {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  const d = new Date(value);
+  // ISO UTC (…Z) dari API: geser ke komponen WIB dulu (2025-12-31T17:00Z = 1 Jan 00:00 WIB),
+  // jangan dibaca sebagai tanggal-nya saja (bikin segmen geser 1 bulan).
+  const d = toWibDate(value);
   return Number.isNaN(d.getTime()) ? new Date() : d;
 }
 
@@ -718,7 +720,7 @@ function ViewReportModal({ report, onClose }: { report: LaporanDTO; onClose: () 
                   {weeksInRange(month.start, month.end).map((week, j) => (
                     <div key={j} className="border border-gray-200 rounded-lg p-4 bg-white">
                       <h4 className="mb-3 pb-2 border-b" style={{ color: INK, borderColor: '#e5e7eb' }}>{week.title}</h4>
-                      <RincianSections data={sliceRincian(report.rincian, week.start, week.end)} />
+                      <RincianSections data={sliceRincian(report.rincian, week.start, week.end)} compact />
                     </div>
                   ))}
                 </div>
@@ -751,6 +753,9 @@ interface SectionHead {
   align?: 'left' | 'right' | 'center';
 }
 
+/** Mode ringkas (segmen minggu dalam laporan tahunan/custom) ala `compact` desain V3.1. */
+const CompactCtx = createContext(false);
+
 function Section({ title, color, total, head, rows }: {
   title: string;
   color: string;
@@ -758,11 +763,12 @@ function Section({ title, color, total, head, rows }: {
   head: SectionHead[];
   rows: React.ReactNode[][];
 }) {
+  const compact = useContext(CompactCtx);
   return (
-    <div className="mb-5">
+    <div className={compact ? "mb-3" : "mb-6"}>
       <div className="flex items-center justify-between mb-2">
-        <h4 style={{ color: '#000000' }}>{title}</h4>
-        {total != null && <p style={{ color }}>{total}</p>}
+        <h4 className={compact ? "text-sm font-semibold" : ""} style={{ color: '#000000' }}>{title}</h4>
+        {total != null && <p className={compact ? "text-sm" : ""} style={{ color }}>{total}</p>}
       </div>
       <div className="border border-gray-200 rounded-lg overflow-hidden">
         <table className="w-full">
@@ -771,7 +777,7 @@ function Section({ title, color, total, head, rows }: {
               {head.map((h, i) => (
                 <th
                   key={i}
-                  className="px-3 py-2 text-xs font-semibold"
+                  className={`px-3 py-2${compact ? ' text-xs' : ''}`}
                   style={{ color: '#000000', textAlign: h.align ?? 'left' }}
                 >
                   {h.label}
@@ -782,7 +788,7 @@ function Section({ title, color, total, head, rows }: {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={head.length} className="px-3 py-4 text-center text-xs" style={{ color: INK, opacity: 0.4 }}>
+                <td colSpan={head.length} className={`px-3 py-4 text-center${compact ? ' text-xs' : ''}`} style={{ color: INK, opacity: 0.4 }}>
                   Tidak ada data
                 </td>
               </tr>
@@ -802,8 +808,9 @@ function Td({ children, align = 'left', color = INK, bold = false }: {
   color?: string;
   bold?: boolean;
 }) {
+  const compact = useContext(CompactCtx);
   return (
-    <td className={`px-3 py-2 text-xs${bold ? ' font-medium' : ''}`} style={{ color, textAlign: align }}>
+    <td className={`px-3 py-2${compact ? ' text-xs' : ''}${bold ? ' font-medium' : ''}`} style={{ color, textAlign: align }}>
       {children}
     </td>
   );
@@ -819,14 +826,20 @@ function RepackBadge({ value }: { value: number }) {
   );
 }
 
-function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
+function RincianSections({ data, compact = false }: { data: LaporanDTO["rincian"]; compact?: boolean }) {
   const pos = data.penjualan.filter((r) => r.asal === "offline");
   const online = data.penjualan.filter((r) => r.asal === "commerce");
   const cashIn = data.cashFlow.filter((r) => r.tipe === "in");
   const cashOut = data.cashFlow.filter((r) => r.tipe === "out");
   const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
+  /** Format tanggal ala desain: ringkas "dd/MM HH:mm" (cash "dd/MM"), penuh "dd MMM yyyy, HH:mm". */
+  const tgl = (value: string, withTime = true) =>
+    withTime
+      ? fmtWib(value, compact ? "dd/MM HH:mm" : "dd MMM yyyy, HH:mm")
+      : fmtWib(value, compact ? "dd/MM" : "dd MMM yyyy");
 
   return (
+    <CompactCtx.Provider value={compact}>
     <>
       <Section
         title="Transaksi POS"
@@ -834,8 +847,8 @@ function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
         total={formatRp(sum(pos.map((r) => r.total)))}
         head={[{ label: 'ID' }, { label: 'Tanggal' }, { label: 'Kasir' }, { label: 'Metode' }, { label: 'Total', align: 'right' }]}
         rows={pos.map((r) => [
-          <Td key="id" color={GREEN}>{r.noPesanan}</Td>,
-          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy, HH:mm")}</Td>,
+          <Td key="id">{r.noPesanan}</Td>,
+          <Td key="tgl">{tgl(r.tanggal)}</Td>,
           <Td key="kasir">{r.kasir || '-'}</Td>,
           <Td key="metode">{r.metodeBayar || '-'}</Td>,
           <Td key="total" align="right">{formatRp(r.total)}</Td>,
@@ -848,8 +861,8 @@ function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
         total={formatRp(sum(online.map((r) => r.total)))}
         head={[{ label: 'ID' }, { label: 'Tanggal' }, { label: 'Pelanggan' }, { label: 'Asal' }, { label: 'Total', align: 'right' }]}
         rows={online.map((r) => [
-          <Td key="id" color={GREEN}>{r.noPesanan}</Td>,
-          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy, HH:mm")}</Td>,
+          <Td key="id">{r.noPesanan}</Td>,
+          <Td key="tgl">{tgl(r.tanggal)}</Td>,
           <Td key="pelanggan">{r.namaPelanggan || '-'}</Td>,
           <Td key="asal">{r.asal === "commerce" ? 'Commerce' : 'Offline'}</Td>,
           <Td key="total" align="right">{formatRp(r.total)}</Td>,
@@ -857,7 +870,7 @@ function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
       />
 
       <Section
-        title="Pembelian"
+        title="Pembelian Stok"
         color={RED}
         total={formatRp(sum(data.pembelian.map((r) => r.grandTotal)))}
         head={[
@@ -865,8 +878,8 @@ function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
           { label: 'Repack', align: 'center' }, { label: 'Total', align: 'right' }, { label: 'Laba', align: 'right' },
         ]}
         rows={data.pembelian.map((r) => [
-          <Td key="no" color={GREEN}>{r.noPembelian}</Td>,
-          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
+          <Td key="no">{r.noPembelian}</Td>,
+          <Td key="tgl">{tgl(r.tanggal)}</Td>,
           <Td key="supplier">{r.supplier || '-'}</Td>,
           <Td key="repack" align="center"><RepackBadge value={r.biayaRepack} /></Td>,
           <Td key="total" align="right" color={RED}>
@@ -891,8 +904,8 @@ function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
           { label: 'Dikembalikan', align: 'right' },
         ]}
         rows={data.konsinyasi.map((r) => [
-          <Td key="no" color={GREEN}>{r.noKonsinyasi}</Td>,
-          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
+          <Td key="no">{r.noKonsinyasi}</Td>,
+          <Td key="tgl">{tgl(r.tanggal)}</Td>,
           <Td key="vendor">{r.supplier || '-'}</Td>,
           <Td key="nilai" align="right">{formatRp(r.totalNilaiKonsinyasi)}</Td>,
           <Td key="bayar" align="right" color={RED}>{formatRp(r.totalDibayar)}</Td>,
@@ -900,29 +913,32 @@ function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
         ])}
       />
 
-      <Section
-        title="Cash In"
-        color={GREEN}
-        total={formatRp(sum(cashIn.map((r) => r.jumlah)))}
-        head={[{ label: 'Tanggal' }, { label: 'Keterangan' }, { label: 'Jumlah', align: 'right' }]}
-        rows={cashIn.map((r) => [
-          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
-          <Td key="ket">{r.keterangan || '-'}</Td>,
-          <Td key="jml" align="right" color={GREEN}>{formatRp(r.jumlah)}</Td>,
-        ])}
-      />
+      <div className="grid grid-cols-2 gap-4">
+        <Section
+          title="Cash In"
+          color={GREEN}
+          total={formatRp(sum(cashIn.map((r) => r.jumlah)))}
+          head={[{ label: 'Tanggal' }, { label: 'Keterangan' }, { label: 'Jumlah', align: 'right' }]}
+          rows={cashIn.map((r) => [
+            <Td key="tgl">{tgl(r.tanggal, false)}</Td>,
+            <Td key="ket">{r.keterangan || '-'}</Td>,
+            <Td key="jml" align="right" color={GREEN}>{formatRp(r.jumlah)}</Td>,
+          ])}
+        />
 
-      <Section
-        title="Cash Out"
-        color={RED}
-        total={formatRp(sum(cashOut.map((r) => r.jumlah)))}
-        head={[{ label: 'Tanggal' }, { label: 'Keterangan' }, { label: 'Jumlah', align: 'right' }]}
-        rows={cashOut.map((r) => [
-          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
-          <Td key="ket">{r.keterangan || '-'}</Td>,
-          <Td key="jml" align="right" color={RED}>{formatRp(r.jumlah)}</Td>,
-        ])}
-      />
+        <Section
+          title="Cash Out"
+          color={RED}
+          total={formatRp(sum(cashOut.map((r) => r.jumlah)))}
+          head={[{ label: 'Tanggal' }, { label: 'Keterangan' }, { label: 'Jumlah', align: 'right' }]}
+          rows={cashOut.map((r) => [
+            <Td key="tgl">{tgl(r.tanggal, false)}</Td>,
+            <Td key="ket">{r.keterangan || '-'}</Td>,
+            <Td key="jml" align="right" color={RED}>{formatRp(r.jumlah)}</Td>,
+          ])}
+        />
+      </div>
     </>
+    </CompactCtx.Provider>
   );
 }

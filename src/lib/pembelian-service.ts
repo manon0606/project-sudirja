@@ -114,9 +114,12 @@ function computeRingkasan(items: PembelianItemDTO[], ppn: number): { totalPembel
   const estimasiLaba = items.reduce((sum, it) => {
     // Item dengan pecahan: laba dihitung per pecahan memakai alokasi HPP
     // (satuan beli tidak dijual, jadi harga beli item tidak bisa dipakai).
+    // Alokasi HPP pecahan sudah memuat biaya bahan repack (subtotal + bahan),
+    // jadi biaya repack TIDAK dikurangi lagi — hanya item tanpa pecahan yang
+    // mengurangi laba dengan biaya bahan.
     if (it.pecahan.length) {
       const labaPecahan = it.pecahan.reduce((s, p) => s + ((p.hargaJualSatuan ?? 0) - p.hargaBeliAlokasi) * p.qty, 0);
-      return sum + round2(labaPecahan - it.biayaRepack);
+      return sum + round2(labaPecahan);
     }
     const beliEfektif = it.hargaBeli * (1 - it.diskon / 100);
     return sum + round2((it.hargaJual - beliEfektif) * it.qty - it.biayaRepack);

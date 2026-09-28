@@ -134,3 +134,12 @@ Migrasi DB dijalankan manual via `mysql web_sudirja < db/migrations/*.sql`
     (Daftar Produk kolom SKU/Nama Produk/Satuan/Qty/Harga Beli/Harga Jual/Diskon/
     Total/Laba + kartu `Ringkasan` dengan `Total Biaya Repack`), banner error
     merah di dalam modal, dan tombol sesuai standar warna.
+- Perbaikan hitungan laba (root cause server): alokasi HPP pecahan sudah memuat
+  biaya bahan repack (`subtotal + biayaRepack`), jadi `estimasiLaba` tidak boleh
+  mengurangi biaya repack lagi untuk item berpecahan (sebelumnya dobel hitung →
+  laba terlalu negatif sebesar biaya bahan). Item tanpa pecahan tetap dikurangi
+  biaya bahan. Diperbaiki di `pembelian-service.ts` (computeRingkasan),
+  `laporan-service.ts` (SQL `estimasi_laba`), dan `labaItemDto` di `Pembelian.tsx`.
+- Perbaikan segmentasi modal Lihat: `parsePeriode` kini memakai `toWibDate`
+  untuk ISO UTC dari API (sebelumnya dibaca sebagai tanggal mentah → laporan
+  tahunan menampilkan 13 blok bulan mulai Desember tahun sebelumnya).

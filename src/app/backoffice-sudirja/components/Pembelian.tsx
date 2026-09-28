@@ -1327,14 +1327,15 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 // Detail Modal
 // ---------------------------------------------------------------------------
 
-/** Laba estimasi per item (cermin `estimasiLaba` server): pecahan → Σ (jual − alokasi)×qty;
- *  tanpa pecahan → (jual − beli setelah diskon)×qty; dikurangi biaya bahan repack. */
+/** Laba estimasi per item (cermin `estimasiLaba` server): pecahan → Σ (jual − alokasi)×qty
+ *  (alokasi sudah memuat biaya bahan repack); tanpa pecahan → (jual − beli setelah diskon)×qty
+ *  dikurangi biaya bahan repack. */
 function labaItemDto(it: PembelianItemDTO): number {
   const pecahan = Array.isArray(it.pecahan) ? it.pecahan : [];
-  const labaIsi = pecahan.length
-    ? pecahan.reduce((s, p) => s + ((p.hargaJualSatuan ?? 0) - p.hargaBeliAlokasi) * p.qty, 0)
-    : (it.hargaJual - it.hargaBeli * (1 - it.diskon / 100)) * it.qty;
-  return labaIsi - (it.biayaRepack || 0);
+  if (pecahan.length) {
+    return pecahan.reduce((s, p) => s + ((p.hargaJualSatuan ?? 0) - p.hargaBeliAlokasi) * p.qty, 0);
+  }
+  return (it.hargaJual - it.hargaBeli * (1 - it.diskon / 100)) * it.qty - (it.biayaRepack || 0);
 }
 
 function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose: () => void; onDelete: (id: number) => void }) {
