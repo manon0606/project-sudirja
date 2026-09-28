@@ -119,3 +119,18 @@ Migrasi DB dijalankan manual via `mysql web_sudirja < db/migrations/*.sql`
 - Laporan — pembelian: ringkasan menambah baris `↳ termasuk biaya bahan repack`;
   rincian pembelian menambah kolom `Biaya Repack` dan `Estimasi Laba` (+ baris TOTAL);
   PDF laporan menyesuaikan kolom & baris yang sama.
+- Penyelarasan tampilan desain V3.1 (UI-only):
+  - **Laporan**: header "Laporan", kartu `Buat Laporan Baru` inline dengan 4 tile
+    tipe (Harian/Bulanan/Tahunan/Custom) + input per tipe, kartu preview sukses
+    (Lihat/Unduh), kartu `Riwayat Laporan` (search, sort, pagination; riwayat
+    disimpan di `localStorage` `sudirja_laporan_history` karena backend generate
+    real-time), dan modal `Lihat` berisi `Ringkasan Total` 3 kolom + 6 seksi
+    (Transaksi POS, Transaksi Online, Pembelian, Konsinyasi, Cash In, Cash Out)
+    dengan segmen minggu/bulan untuk laporan bulanan/tahunan/custom.
+  - **Pembelian**: header + tombol `Buat Pembelian Baru`, baris filter
+    (`Filter Tanggal`, `Hapus Filter`, teks "Menampilkan X dari Y data"),
+    tabel + pagination gaya desain, modal `Buat Pembelian` layout 2 kolom
+    (kiri info+produk, kanan `Ringkasan Total`), modal `Detail Pembelian`
+    (Daftar Produk kolom SKU/Nama Produk/Satuan/Qty/Harga Beli/Harga Jual/Diskon/
+    Total/Laba + kartu `Ringkasan` dengan `Total Biaya Repack`), banner error
+    merah di dalam modal, dan tombol sesuai standar warna.

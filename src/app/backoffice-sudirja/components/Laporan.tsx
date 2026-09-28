@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore, useState } from "react";
 import AdminSidebar from "./AdminSidebar";
 import DatePicker from "./DatePicker";
 import Modal from "./Modal";
@@ -7,97 +7,227 @@ import { ApiClientError } from "@/lib/api-client";
 import { generateLaporan } from "@/lib/laporan-api";
 import type { LaporanDTO, LaporanTipe } from "@/lib/laporan-types";
 import { exportLaporanPdf } from "./laporan-pdf";
-import { format } from "date-fns";
-import { id as localeId } from "date-fns/locale";
-import { fmtWib } from "@/lib/date-utils";
 import {
-  Download, FileText, Calendar, ChevronDown, TrendingUp, TrendingDown, Wallet, RefreshCw, X
+  eachMonthOfInterval, eachWeekOfInterval, endOfMonth, endOfWeek, format,
+  isWithinInterval, startOfMonth,
+} from "date-fns";
+import { fmtWib, toWibDate } from "@/lib/date-utils";
+import {
+  ArrowDown, ArrowUp, ArrowUpDown, Calendar, ChevronDown, ChevronLeft, ChevronRight,
+  Download, Eye, FileText, RefreshCw, Search, X
 } from "lucide-react";
 
-type Tab = "summary" | "penjualan" | "pembelian" | "konsinyasi" | "cash";
+const GREEN = '#27b446';
+const RED = '#e40b18';
+const INK = '#1a0408';
+
+const HISTORY_KEY = "sudirja_laporan_history";
+const HISTORY_MAX = 50;
+
+const MONTHS_ID = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+];
+
+/** Pilihan tahun dropdown: 6 tahun terakhir (termasuk tahun berjalan). */
+const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i);
+
+const TYPE_TILES: Array<{ key: LaporanTipe; label: string; desc: string }> = [
+  { key: "daily", label: "Harian", desc: "Laporan per hari" },
+  { key: "monthly", label: "Bulanan", desc: "Laporan per bulan" },
+  { key: "yearly", label: "Tahunan", desc: "Laporan per tahun" },
+  { key: "custom", label: "Custom", desc: "Tentukan periode" },
+];
+
+interface HistoryEntry {
+  id: string;
+  tipe: LaporanTipe;
+  periodeMulai: string;
+  periodeAkhir: string;
+  tanggalPembuatan: string;
+  report: LaporanDTO;
+}
 
 function formatRp(n: number) {
   return `Rp ${n.toLocaleString('id-ID')}`;
 }
 
-function Card({ label, value, color = '#1a0408', icon }: { label: string; value: string; color?: string; icon?: React.ReactNode }) {
-  return (
-    <div className="p-5 rounded-xl border" style={{ borderColor: '#e5e7eb', backgroundColor: 'white' }}>
-      <p className="text-sm flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.6 }}>{icon}{label}</p>
-      <p className="text-xl font-semibold mt-1" style={{ color }}>{value}</p>
-    </div>
-  );
+/** Teks periode laporan (format desain per tipe). */
+function periodeText(r: { tipe: LaporanTipe; periodeMulai: string; periodeAkhir: string }) {
+  if (r.tipe === "daily") return fmtWib(r.periodeMulai, "dd MMMM yyyy");
+  if (r.tipe === "monthly") return fmtWib(r.periodeMulai, "MMMM yyyy");
+  if (r.tipe === "yearly") return fmtWib(r.periodeMulai, "yyyy");
+  return `${fmtWib(r.periodeMulai, "dd MMM yyyy")} - ${fmtWib(r.periodeAkhir, "dd MMM yyyy")}`;
 }
 
+const EMPTY_HISTORY: HistoryEntry[] = [];
+
+function parseHistory(raw: string | null): HistoryEntry[] {
+  if (!raw) return EMPTY_HISTORY;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return EMPTY_HISTORY;
+    const valid = parsed.filter((e): e is HistoryEntry => {
+      const entry = e as HistoryEntry | null;
+      return !!entry && typeof entry.id === "string" && !!entry.report;
+    });
+    return valid.length ? valid : EMPTY_HISTORY;
+  } catch {
+    return EMPTY_HISTORY;
+  }
+}
+
+// localStorage = sumber kebenaran riwayat. Snapshot di-cache supaya referensinya
+// stabil (syarat useSyncExternalStore), dan getServerSnapshot selalu kosong agar
+// HTML server sama dengan render pertama klien (tanpa hydration mismatch).
+let cachedHistoryRaw: string | null = null;
+let cachedHistory: HistoryEntry[] = EMPTY_HISTORY;
+const historyListeners = new Set<() => void>();
+
+function getHistorySnapshot(): HistoryEntry[] {
+  if (typeof window === "undefined") return EMPTY_HISTORY;
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(HISTORY_KEY);
+  } catch {
+    return EMPTY_HISTORY;
+  }
+  if (raw === cachedHistoryRaw) return cachedHistory;
+  cachedHistoryRaw = raw;
+  cachedHistory = parseHistory(raw);
+  return cachedHistory;
+}
+
+function subscribeHistory(onChange: () => void): () => void {
+  historyListeners.add(onChange);
+  return () => { historyListeners.delete(onChange); };
+}
+
+function writeHistory(entries: HistoryEntry[]) {
+  try {
+    window.localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
+  } catch {
+    /* storage penuh/diblokir — riwayat cukup hidup di memori sesi ini */
+  }
+  historyListeners.forEach((listener) => listener());
+}
+
+/** Nomor halaman yang tampil (maks 5, mengikuti desain). */
+function pageWindow(current: number, total: number, size = 5): number[] {
+  if (total <= size) return Array.from({ length: total }, (_, i) => i + 1);
+  let start = Math.max(1, current - Math.floor(size / 2));
+  if (start + size - 1 > total) start = total - size + 1;
+  return Array.from({ length: size }, (_, i) => start + i);
+}
+
+
 export default function Laporan() {
+  const now = new Date();
   const [reportType, setReportType] = useState<LaporanTipe>("daily");
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [selectedMonth, setSelectedMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`);
-  const [yearlyYear, setYearlyYear] = useState(String(new Date().getFullYear()));
+  const [selectedDate, setSelectedDate] = useState(format(now, "yyyy-MM-dd"));
+  const [selectedMonth, setSelectedMonth] = useState(String(now.getMonth()));
+  const [selectedYear, setSelectedYear] = useState(String(now.getFullYear()));
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
-  const [report, setReport] = useState<LaporanDTO | null>(null);
-  const [tab, setTab] = useState<Tab>("summary");
+  const [latest, setLatest] = useState<LaporanDTO | null>(null);
+  const [viewing, setViewing] = useState<LaporanDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [formOpen, setFormOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exportingId, setExportingId] = useState("");
   const [exportError, setExportError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortKey, setSortKey] = useState<"tanggalPembuatan" | "periodeMulai">("tanggalPembuatan");
+  const [sortAsc, setSortAsc] = useState(false);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Riwayat laporan hidup di localStorage (sumber kebenaran); snapshot server kosong.
+  const history = useSyncExternalStore(subscribeHistory, getHistorySnapshot, () => EMPTY_HISTORY);
 
   const handleGenerate = useCallback(async () => {
-    setLoading(true);
     setError("");
-    try {
-      let dateFrom = selectedDate;
-      let dateTo: string | undefined;
-      if (reportType === "monthly") {
-        dateFrom = selectedMonth;
-      } else if (reportType === "yearly") {
-        dateFrom = yearlyYear;
-      } else if (reportType === "custom") {
-        if (!customDateFrom || !customDateTo) {
-          setError("Pilih rentang tanggal untuk laporan custom.");
-          setLoading(false);
-          return;
-        }
-        if (customDateFrom > customDateTo) {
-          setError("Tanggal mulai tidak boleh lebih besar dari tanggal akhir.");
-          setLoading(false);
-          return;
-        }
-        dateFrom = customDateFrom;
-        dateTo = customDateTo;
+    let dateFrom = selectedDate;
+    let dateTo: string | undefined;
+    if (reportType === "monthly") {
+      dateFrom = `${selectedYear}-${String(Number(selectedMonth) + 1).padStart(2, "0")}`;
+    } else if (reportType === "yearly") {
+      dateFrom = selectedYear;
+    } else if (reportType === "custom") {
+      if (!customDateFrom || !customDateTo) {
+        setError("Pilih rentang tanggal laporan custom terlebih dahulu.");
+        return;
       }
+      if (customDateFrom > customDateTo) {
+        setError("Tanggal mulai tidak boleh lebih besar dari tanggal akhir.");
+        return;
+      }
+      dateFrom = customDateFrom;
+      dateTo = customDateTo;
+    }
+    setLoading(true);
+    try {
       const result = await generateLaporan({ tipe: reportType, dateFrom, dateTo });
-      setReport(result);
-      setTab("summary");
-      setFormOpen(false);
+      const entry: HistoryEntry = {
+        id: result.id,
+        tipe: result.tipe,
+        periodeMulai: result.periodeMulai,
+        periodeAkhir: result.periodeAkhir,
+        tanggalPembuatan: result.tanggalPembuatan,
+        report: result,
+      };
+      setLatest(result);
+      setCurrentPage(1);
+      writeHistory([entry, ...history.filter((e) => e.id !== entry.id)].slice(0, HISTORY_MAX));
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : "Gagal membuat laporan.");
     } finally {
       setLoading(false);
     }
-  }, [reportType, selectedDate, selectedMonth, yearlyYear, customDateFrom, customDateTo]);
+  }, [reportType, selectedDate, selectedMonth, selectedYear, customDateFrom, customDateTo, history]);
 
-  const handleExport = useCallback(async () => {
-    if (!report) return;
-    setExporting(true);
+  const handleExport = useCallback(async (r: LaporanDTO, key: string) => {
+    setExportingId(key);
     setExportError("");
     try {
-      await exportLaporanPdf(report);
+      await exportLaporanPdf(r);
     } catch {
       setExportError("Gagal membuat file PDF. Silakan coba lagi.");
     } finally {
-      setExporting(false);
+      setExportingId("");
     }
-  }, [report]);
-
-  const openForm = useCallback(() => {
-    setError("");
-    setFormOpen(true);
   }, []);
 
-  const inputStyle = { color: '#1a0408', '--tw-ring-color': '#27b446' } as React.CSSProperties;
+  const toggleSort = useCallback((key: "tanggalPembuatan" | "periodeMulai") => {
+    if (key === sortKey) {
+      setSortAsc((prev) => !prev);
+      return;
+    }
+    setSortKey(key);
+    setSortAsc(false);
+  }, [sortKey]);
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = q ? history.filter((e) => e.id.toLowerCase().includes(q)) : [...history];
+    list.sort((a, b) => {
+      const va = sortKey === "tanggalPembuatan" ? a.tanggalPembuatan : a.periodeMulai;
+      const vb = sortKey === "tanggalPembuatan" ? b.tanggalPembuatan : b.periodeMulai;
+      return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+    return list;
+  }, [history, searchQuery, sortKey, sortAsc]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const page = Math.min(currentPage, totalPages);
+  const startIndex = (page - 1) * itemsPerPage;
+  const pageRows = filtered.slice(startIndex, startIndex + itemsPerPage);
+
+  const sortIcon = (key: "tanggalPembuatan" | "periodeMulai") =>
+    sortKey !== key
+      ? <ArrowUpDown className="w-4 h-4" style={{ opacity: 0.4 }} />
+      : sortAsc ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
+
+  const inputStyle = { color: INK, '--tw-ring-color': GREEN } as React.CSSProperties;
 
   return (
     <div className="flex h-screen" style={{ backgroundColor: '#fcfaff' }}>
@@ -106,381 +236,693 @@ export default function Laporan() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="border-b border-gray-200 bg-white px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 style={{ color: '#000000' }}>Laporan Keuangan</h1>
-              <p className="mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
-                Pantau semua pemasukan & pengeluaran secara real-time dari data transaksi
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={openForm}
-                className="flex items-center gap-2 px-5 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
-                style={{ backgroundColor: '#27b446' }}>
-                <FileText className="w-5 h-5" /> Buat Laporan
-              </button>
-              {report && (
-                <button onClick={() => void handleExport()} disabled={exporting}
-                  className="flex items-center gap-2 px-5 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                  style={{ backgroundColor: '#27b446' }}>
-                  <Download className="w-5 h-5" /> {exporting ? "Membuat PDF..." : "Export PDF"}
+          <h1 style={{ color: '#000000' }}>Laporan</h1>
+          <p className="mt-1" style={{ color: INK, opacity: 0.6 }}>
+            Buat dan kelola laporan keuangan toko
+          </p>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto px-8 py-6">
+          <div className="space-y-6">
+            {exportError && (
+              <div className="p-3 rounded-lg text-sm" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                ⚠ {exportError}
+              </div>
+            )}
+
+            {/* Buat Laporan Baru */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h2 className="mb-4" style={{ color: '#000000' }}>Buat Laporan Baru</h2>
+
+              <div className="mb-6">
+                <label className="block mb-3" style={{ color: '#000000' }}>Pilih Tipe Laporan</label>
+                <div className="grid grid-cols-4 gap-4">
+                  {TYPE_TILES.map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => { setReportType(t.key); setError(""); }}
+                      className="p-4 rounded-lg border-2 transition-colors text-left"
+                      style={{
+                        borderColor: reportType === t.key ? GREEN : '#e5e7eb',
+                        backgroundColor: reportType === t.key ? 'rgba(39, 180, 70, 0.05)' : 'transparent'
+                      }}
+                    >
+                      <p style={{ color: '#000000' }}>{t.label}</p>
+                      <p className="text-sm mt-1" style={{ color: INK, opacity: 0.6 }}>{t.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-end gap-2">
+                {reportType === "daily" && (
+                  <div className="flex-1 max-w-xs">
+                    <label className="block mb-2" style={{ color: '#000000' }}>Pilih Tanggal</label>
+                    <div className="relative">
+                      <DatePicker
+                        value={selectedDate}
+                        onChange={(v) => setSelectedDate(v)}
+                        className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                        style={inputStyle}
+                      />
+                      <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" style={{ color: INK, opacity: 0.4 }} />
+                    </div>
+                  </div>
+                )}
+
+                {reportType === "monthly" && (
+                  <div className="flex-1 grid grid-cols-2 gap-4 max-w-lg">
+                    <div>
+                      <label className="block mb-2" style={{ color: '#000000' }}>Pilih Bulan</label>
+                      <div className="relative">
+                        <select
+                          value={selectedMonth}
+                          onChange={(e) => setSelectedMonth(e.target.value)}
+                          className="appearance-none w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
+                          style={inputStyle}
+                        >
+                          {MONTHS_ID.map((month, index) => (
+                            <option key={month} value={String(index)}>{month}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" style={{ color: INK, opacity: 0.6 }} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block mb-2" style={{ color: '#000000' }}>Pilih Tahun</label>
+                      <div className="relative">
+                        <select
+                          value={selectedYear}
+                          onChange={(e) => setSelectedYear(e.target.value)}
+                          className="appearance-none w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
+                          style={inputStyle}
+                        >
+                          {YEAR_OPTIONS.map((year) => (
+                            <option key={year} value={String(year)}>{year}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" style={{ color: INK, opacity: 0.6 }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {reportType === "yearly" && (
+                  <div className="flex-1 max-w-xs">
+                    <label className="block mb-2" style={{ color: '#000000' }}>Pilih Tahun</label>
+                    <div className="relative">
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                        className="appearance-none w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
+                        style={inputStyle}
+                      >
+                        {YEAR_OPTIONS.map((year) => (
+                          <option key={year} value={String(year)}>{year}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" style={{ color: INK, opacity: 0.6 }} />
+                    </div>
+                  </div>
+                )}
+
+                {reportType === "custom" && (
+                  <div className="flex-1 grid grid-cols-2 gap-4 max-w-lg">
+                    <div>
+                      <label className="block mb-2" style={{ color: '#000000' }}>Dari Tanggal</label>
+                      <div className="relative">
+                        <DatePicker
+                          value={customDateFrom}
+                          max={customDateTo || undefined}
+                          onChange={(v) => { setCustomDateFrom(v); setError(""); }}
+                          className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                          style={inputStyle}
+                        />
+                        <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" style={{ color: INK, opacity: 0.4 }} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block mb-2" style={{ color: '#000000' }}>Sampai Tanggal</label>
+                      <div className="relative">
+                        <DatePicker
+                          value={customDateTo}
+                          min={customDateFrom || undefined}
+                          onChange={(v) => { setCustomDateTo(v); setError(""); }}
+                          className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                          style={inputStyle}
+                        />
+                        <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" style={{ color: INK, opacity: 0.4 }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => void handleGenerate()}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                  style={{ backgroundColor: GREEN }}
+                >
+                  {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
+                  {loading ? "Memproses..." : "Buat Laporan"}
                 </button>
+              </div>
+
+              {error && (
+                <p className="mt-4 text-sm" style={{ color: RED }}>⚠ {error}</p>
+              )}
+
+              {latest && (
+                <div className="mt-6 p-4 rounded-lg border-2" style={{ borderColor: GREEN, backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p style={{ color: '#000000' }}>Laporan berhasil dibuat!</p>
+                      <p className="text-sm mt-1" style={{ color: INK, opacity: 0.6 }}>
+                        Periode: {periodeText(latest)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setLatest(null)}
+                      className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                      style={{ color: INK }}
+                      title="Tutup preview"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setViewing(latest)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: GREEN }}
+                    >
+                      <Eye className="w-4 h-4" />
+                      Lihat
+                    </button>
+
+                    <button
+                      onClick={() => void handleExport(latest, latest.id)}
+                      disabled={exportingId === latest.id}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:bg-white disabled:opacity-60"
+                      style={{ borderColor: GREEN, color: GREEN }}
+                    >
+                      <Download className="w-4 h-4" />
+                      {exportingId === latest.id ? "Membuat PDF..." : "Unduh"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Riwayat Laporan */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h2 style={{ color: '#000000' }}>Riwayat Laporan</h2>
+                <p className="text-sm mt-1" style={{ color: INK, opacity: 0.6 }}>
+                  Daftar laporan yang pernah dibuat
+                </p>
+              </div>
+
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="relative max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: INK, opacity: 0.4 }} />
+                  <input
+                    type="text"
+                    placeholder="Cari ID Laporan..."
+                    value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <table className="w-full">
+                <thead style={{ backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
+                  <tr>
+                    <th className="px-6 py-4 text-left">
+                      <button
+                        onClick={() => toggleSort("tanggalPembuatan")}
+                        className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+                        style={{ color: '#000000' }}
+                      >
+                        Tanggal Pembuatan
+                        {sortIcon("tanggalPembuatan")}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4 text-left">
+                      <button
+                        onClick={() => toggleSort("periodeMulai")}
+                        className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+                        style={{ color: '#000000' }}
+                      >
+                        Periode Laporan
+                        {sortIcon("periodeMulai")}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4 text-center" style={{ color: '#000000' }}>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-6 py-12 text-center" style={{ color: INK, opacity: 0.4 }}>
+                        Belum ada riwayat laporan
+                      </td>
+                    </tr>
+                  ) : (
+                    pageRows.map((row) => (
+                      <tr key={row.id} className="border-b border-gray-200 transition-colors hover:bg-gray-50">
+                        <td className="px-6 py-4">
+                          <p style={{ color: GREEN }}>{row.id}</p>
+                          <p className="text-sm" style={{ color: INK, opacity: 0.6 }}>
+                            {fmtWib(row.tanggalPembuatan, "dd MMM yyyy, HH:mm")}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4" style={{ color: INK }}>
+                          {periodeText(row)}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => setViewing(row.report)}
+                              className="p-2 rounded-lg border transition-colors hover:bg-gray-50"
+                              style={{ borderColor: GREEN, color: GREEN }}
+                              title="Lihat Laporan"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => void handleExport(row.report, row.id)}
+                              disabled={exportingId === row.id}
+                              className="p-2 rounded-lg border transition-colors hover:bg-gray-50 disabled:opacity-60"
+                              style={{ borderColor: GREEN, color: GREEN }}
+                              title="Unduh Laporan"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+
+              {filtered.length > 0 && (
+                <div className="border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span style={{ color: INK, opacity: 0.7 }}>Tampilkan</span>
+                    <div className="relative">
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                        className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 cursor-pointer"
+                        style={inputStyle}
+                      >
+                        {[10, 25, 50, 100].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: INK, opacity: 0.6 }} />
+                    </div>
+                    <span style={{ color: INK, opacity: 0.7 }}>
+                      Menampilkan {startIndex + 1} - {Math.min(startIndex + itemsPerPage, filtered.length)} dari {filtered.length} laporan
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentPage(Math.max(1, page - 1))}
+                      disabled={page === 1}
+                      className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                      style={{ color: INK }}
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+
+                    <div className="flex gap-1">
+                      {pageWindow(page, totalPages).map((num) => (
+                        <button
+                          key={num}
+                          onClick={() => setCurrentPage(num)}
+                          className="w-10 h-10 rounded-lg transition-colors"
+                          style={{
+                            backgroundColor: page === num ? GREEN : 'transparent',
+                            color: page === num ? 'white' : INK,
+                            border: page === num ? 'none' : '1px solid #e5e7eb'
+                          }}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => setCurrentPage(Math.min(totalPages, page + 1))}
+                      disabled={page === totalPages}
+                      className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                      style={{ color: INK }}
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto p-8">
-          {!report ? (
-            <div className="py-20 text-center">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(39, 180, 70, 0.1)' }}>
-                  <FileText className="w-10 h-10" style={{ color: '#27b446' }} />
-                </div>
-                <div>
-                  <p className="text-lg" style={{ color: '#000000' }}>Belum ada laporan</p>
-                  <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
-                    Klik &quot;Buat Laporan&quot; untuk membuat laporan baru dari data transaksi real-time.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Summary cards */}
-              <div>
-                <p className="text-sm mb-2 flex items-center gap-2" style={{ color: '#1a0408', opacity: 0.7 }}>
-                  <Calendar className="w-4 h-4" />
-                  Periode: {format(new Date(report.periodeMulai), "dd MMM yyyy", { locale: localeId })} — {format(new Date(report.periodeAkhir), "dd MMM yyyy", { locale: localeId })}
-                  <span className="px-2 py-0.5 rounded-full text-xs font-mono" style={{ backgroundColor: '#f3f4f6', color: '#27b446' }}>{report.id}</span>
-                </p>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Card label="Pemasukan (Penjualan)" value={formatRp(report.summary.totalPenjualan)} color="#27b446" icon={<TrendingUp className="w-4 h-4" style={{ color: '#27b446' }} />} />
-                  <Card label="Cash In" value={formatRp(report.summary.totalCashIn)} color="#27b446" icon={<Wallet className="w-4 h-4" style={{ color: '#27b446' }} />} />
-                  <Card label="Pengeluaran (Beli)" value={formatRp(report.summary.totalPengeluaran)} color="#e40b18" icon={<TrendingDown className="w-4 h-4" style={{ color: '#e40b18' }} />} />
-                  <Card label="Laba Bersih" value={formatRp(report.summary.labaBersih)} color={report.summary.labaBersih >= 0 ? '#27b446' : '#e40b18'} icon={<Wallet className="w-4 h-4" style={{ color: '#27b446' }} />} />
-                </div>
-                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
-                  <Card label="Penjualan Offline" value={formatRp(report.summary.totalPenjualanOffline)} />
-                  <Card label="Penjualan Online" value={formatRp(report.summary.totalPenjualanOnline)} />
-                  <Card label="Total Pembelian (PO)" value={formatRp(report.summary.totalPembelian)} />
-                  <Card label="Konsinyasi Dibayar" value={formatRp(report.summary.totalKonsinyasiDibayar)} />
-                  <Card label="Cash Out" value={formatRp(report.summary.totalCashOut)} />
-                </div>
-              </div>
-
-              {/* Tabs */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="border-b border-gray-200 px-4 flex gap-1 overflow-x-auto">
-                  {([
-                    ["summary", "Ringkasan"],
-                    ["penjualan", `Penjualan (${report.rincian.penjualan.length})`],
-                    ["pembelian", `Pembelian (${report.rincian.pembelian.length})`],
-                    ["konsinyasi", `Konsinyasi (${report.rincian.konsinyasi.length})`],
-                    ["cash", `Cash Flow (${report.rincian.cashFlow.length})`],
-                  ] as Array<[Tab, string]>).map(([key, label]) => (
-                    <button key={key} onClick={() => setTab(key)}
-                      className="px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
-                      style={{ borderColor: tab === key ? '#27b446' : 'transparent', color: tab === key ? '#27b446' : '#1a0408', opacity: tab === key ? 1 : 0.7 }}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="overflow-x-auto">
-                  {tab === "summary" && (
-                    <div className="p-6">
-                      <table className="w-full max-w-lg">
-                        <tbody>
-                          {([
-                            ["Total Penjualan Offline", report.summary.totalPenjualanOffline],
-                            ["Total Penjualan Online", report.summary.totalPenjualanOnline],
-                            ["+ Cash In", report.summary.totalCashIn],
-                          ] as Array<[string, number]>).map(([l, v]) => (
-                            <tr key={l} className="border-b border-gray-100">
-                              <td className="py-2" style={{ color: '#1a0408' }}>{l}</td>
-                              <td className="py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(v)}</td>
-                            </tr>
-                          ))}
-                          <tr className="border-b border-gray-100">
-                            <td className="py-2 font-medium" style={{ color: '#27b446' }}>TOTAL PEMASUKAN</td>
-                            <td className="py-2 text-right font-medium" style={{ color: '#27b446' }}>{formatRp(report.summary.totalPemasukan)}</td>
-                          </tr>
-                          {([
-                            ["Total Pembelian (PO)", report.summary.totalPembelian, false],
-                            ["↳ termasuk biaya bahan repack", report.rincian.pembelian.reduce((a, r) => a + r.biayaRepack, 0), true],
-                            ["Konsinyasi dibayar ke supplier", report.summary.totalKonsinyasiDibayar, false],
-                            ["+ Cash Out", report.summary.totalCashOut, false],
-                          ] as Array<[string, number, boolean]>).map(([l, v, sub]) => (
-                            <tr key={l} className="border-b border-gray-100">
-                              <td className="py-2 text-sm" style={{ color: '#1a0408', opacity: sub ? 0.65 : 1 }}>{l}</td>
-                              <td className="py-2 text-right text-sm" style={{ color: '#1a0408', opacity: sub ? 0.65 : 1 }}>{formatRp(v)}</td>
-                            </tr>
-                          ))}
-                          <tr className="border-b border-gray-100">
-                            <td className="py-2 font-medium" style={{ color: '#e40b18' }}>TOTAL PENGELUARAN</td>
-                            <td className="py-2 text-right font-medium" style={{ color: '#e40b18' }}>{formatRp(report.summary.totalPengeluaran)}</td>
-                          </tr>
-                          <tr>
-                            <td className="py-3 text-lg font-semibold" style={{ color: '#000000' }}>LABA BERSIH ({report.summary.jumlahTransaksi} transaksi)</td>
-                            <td className="py-3 text-lg font-semibold text-right" style={{ color: report.summary.labaBersih >= 0 ? '#27b446' : '#e40b18' }}>{formatRp(report.summary.labaBersih)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {tab === "penjualan" && (
-                    <table className="w-full">
-                      <thead style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
-                        <tr>
-                          {["No. Pesanan", "Tanggal", "Asal", "Kasir / Pelanggan", "Metode", "Subtotal", "Diskon", "Total"].map((h) => (
-                            <th key={h} className="px-5 py-3 text-left text-xs font-semibold" style={{ color: '#000' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.rincian.penjualan.length === 0 ? (
-                          <tr><td colSpan={8} className="px-5 py-10 text-center text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Tidak ada penjualan pada periode ini.</td></tr>
-                        ) : report.rincian.penjualan.map((r) => (
-                          <tr key={r.noPesanan} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noPesanan}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM HH:mm")}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.asal === "offline" ? "Offline" : "Online"}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.asal === "commerce" ? r.namaPelanggan ?? "-" : r.kasir}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.metodeBayar}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{formatRp(r.subtotal)}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#e40b18' }}>{r.diskon > 0 ? `-${formatRp(r.diskon)}` : "-"}</td>
-                            <td className="px-5 py-2 text-sm text-right font-medium" style={{ color: '#27b446' }}>{formatRp(r.total)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-
-                  {tab === "pembelian" && (
-                    <table className="w-full">
-                      <thead style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
-                        <tr>
-                          {["No. Pembelian", "Tanggal", "Supplier", "Subtotal", "Biaya Repack", "PPN", "Grand Total", "Estimasi Laba"].map((h) => (
-                            <th key={h} className="px-5 py-3 text-left text-xs font-semibold" style={{ color: '#000' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.rincian.pembelian.length === 0 ? (
-                          <tr><td colSpan={8} className="px-5 py-10 text-center text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Tidak ada pembelian pada periode ini.</td></tr>
-                        ) : report.rincian.pembelian.map((r) => (
-                          <tr key={r.noPembelian} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noPembelian}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM yyyy")}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.supplier}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{formatRp(r.totalPembelian)}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408', opacity: r.biayaRepack > 0 ? 1 : 0.5 }}>{r.biayaRepack > 0 ? formatRp(r.biayaRepack) : "-"}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{r.ppn > 0 ? `${r.ppn}%` : "-"}</td>
-                            <td className="px-5 py-2 text-sm text-right font-medium" style={{ color: '#e40b18' }}>{formatRp(r.grandTotal)}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: r.estimasiLaba >= 0 ? '#27b446' : '#e40b18' }}>{formatRp(r.estimasiLaba)}</td>
-                          </tr>
-                        ))}
-                        {report.rincian.pembelian.length > 0 && (
-                          <tr style={{ backgroundColor: '#fcfaff', borderTop: '2px solid #e5e7eb' }}>
-                            <td className="px-5 py-3 text-sm font-semibold" style={{ color: '#000' }}>TOTAL ({report.rincian.pembelian.length} pembelian)</td>
-                            <td className="px-5 py-3" />
-                            <td className="px-5 py-3" />
-                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: '#000' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.totalPembelian, 0))}</td>
-                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: '#000' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.biayaRepack, 0))}</td>
-                            <td className="px-5 py-3" />
-                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: '#e40b18' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.grandTotal, 0))}</td>
-                            <td className="px-5 py-3 text-right text-sm font-semibold" style={{ color: report.rincian.pembelian.reduce((a, r) => a + r.estimasiLaba, 0) >= 0 ? '#27b446' : '#e40b18' }}>{formatRp(report.rincian.pembelian.reduce((a, r) => a + r.estimasiLaba, 0))}</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  )}
-
-                  {tab === "konsinyasi" && (
-                    <table className="w-full">
-                      <thead style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
-                        <tr>
-                          {["No. Konsinyasi", "Tanggal", "Supplier", "Nilai", "Dibayar", "Dikembalikan"].map((h) => (
-                            <th key={h} className="px-5 py-3 text-left text-xs font-semibold" style={{ color: '#000' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.rincian.konsinyasi.length === 0 ? (
-                          <tr><td colSpan={6} className="px-5 py-10 text-center text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Tidak ada konsinyasi pada periode ini.</td></tr>
-                        ) : report.rincian.konsinyasi.map((r) => (
-                          <tr key={r.noKonsinyasi} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noKonsinyasi}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM yyyy")}</td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.supplier}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#1a0408' }}>{formatRp(r.totalNilaiKonsinyasi)}</td>
-                            <td className="px-5 py-2 text-sm text-right font-medium" style={{ color: '#e40b18' }}>{formatRp(r.totalDibayar)}</td>
-                            <td className="px-5 py-2 text-sm text-right" style={{ color: '#27b446' }}>{formatRp(r.totalDikembalikan)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-
-                  {tab === "cash" && (
-                    <table className="w-full">
-                      <thead style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
-                        <tr>
-                          {["Tanggal", "Pesanan", "Tipe", "Jumlah", "Keterangan"].map((h) => (
-                            <th key={h} className="px-5 py-3 text-left text-xs font-semibold" style={{ color: '#000' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.rincian.cashFlow.length === 0 ? (
-                          <tr><td colSpan={5} className="px-5 py-10 text-center text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Tidak ada cash in/out pada periode ini.</td></tr>
-                        ) : report.rincian.cashFlow.map((r, i) => (
-                          <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{fmtWib(r.tanggal, "dd MMM yyyy HH:mm")}</td>
-                            <td className="px-5 py-2 font-mono text-sm" style={{ color: '#27b446' }}>{r.noPesanan}</td>
-                            <td className="px-5 py-2 text-sm">
-                              <span className="px-2 py-0.5 rounded-full text-xs"
-                                style={{ backgroundColor: r.tipe === "in" ? 'rgba(39,180,70,0.1)' : '#fee2e2', color: r.tipe === "in" ? '#27b446' : '#991b1b' }}>
-                                {r.tipe === "in" ? "Cash In" : "Cash Out"}
-                              </span>
-                            </td>
-                            <td className="px-5 py-2 text-sm text-right font-medium" style={{ color: r.tipe === "in" ? '#27b446' : '#e40b18' }}>
-                              {r.tipe === "in" ? "+" : "-"}{formatRp(r.jumlah)}
-                            </td>
-                            <td className="px-5 py-2 text-sm" style={{ color: '#1a0408' }}>{r.keterangan}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Buat Laporan Modal */}
-      {formOpen && (
-        <Modal onClose={() => setFormOpen(false)} className="bg-white rounded-2xl w-full max-w-2xl mx-4 shadow-2xl">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 style={{ color: '#000000' }}>Buat Laporan</h2>
-            <button onClick={() => setFormOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="px-6 py-4 space-y-4 max-h-[65vh] overflow-y-auto">
-            {/* Error banner — tampil di dalam modal, di atas isi modal */}
-            {error && (
-              <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
-                <p className="text-sm">⚠ {error}</p>
-              </div>
-            )}
-
-            <div>
-              <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tipe Laporan</span>
-              <div className="relative">
-                <select value={reportType} onChange={(e) => setReportType(e.target.value as LaporanTipe)}
-                  className="appearance-none w-full pl-4 pr-10 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 cursor-pointer"
-                  style={inputStyle}>
-                  <option value="daily">Harian</option>
-                  <option value="monthly">Bulanan</option>
-                  <option value="yearly">Tahunan</option>
-                  <option value="custom">Custom</option>
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
-              </div>
-            </div>
-
-            {reportType === "daily" && (
-              <div>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal</span>
-                <DatePicker value={selectedDate} onChange={(v) => setSelectedDate(v)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-              </div>
-            )}
-            {reportType === "monthly" && (
-              <div>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Bulan</span>
-                <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-              </div>
-            )}
-            {reportType === "yearly" && (
-              <div>
-                <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tahun</span>
-                <input type="number" value={yearlyYear} onChange={(e) => setYearlyYear(e.target.value)}
-                  className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 w-28" style={inputStyle} />
-              </div>
-            )}
-            {reportType === "custom" && (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Dari</span>
-                  <DatePicker value={customDateFrom} max={customDateTo || undefined}
-                    onChange={(v) => { setCustomDateFrom(v); if (customDateTo && v && v > customDateTo) setCustomDateTo(""); }}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-                </div>
-                <div>
-                  <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Sampai</span>
-                  <DatePicker value={customDateTo} min={customDateFrom || undefined}
-                    onChange={(v) => { setCustomDateTo(v); if (customDateFrom && v && v < customDateFrom) setCustomDateFrom(""); }}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
-            <button
-              onClick={() => setFormOpen(false)}
-              className="flex-1 py-3 rounded-lg border transition-colors"
-              style={{ borderColor: '#e40b18', color: '#e40b18' }}
-            >
-              Batal
-            </button>
-            <button
-              onClick={() => void handleGenerate()}
-              disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-              style={{ backgroundColor: '#27b446' }}
-            >
-              {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
-              {loading ? "Memproses..." : "Buat Laporan"}
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* Export Error Modal */}
-      {exportError && (
-        <Modal onClose={() => setExportError("")} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 style={{ color: '#000000' }}>Export PDF</h2>
-            <button onClick={() => setExportError("")} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="px-6 py-4">
-            <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
-              <p className="text-sm">⚠ {exportError}</p>
-            </div>
-          </div>
-          <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
-            <button
-              onClick={() => setExportError("")}
-              className="flex-1 py-3 rounded-lg border transition-colors"
-              style={{ borderColor: '#e40b18', color: '#e40b18' }}
-            >
-              Tutup
-            </button>
-          </div>
-        </Modal>
+      {viewing && (
+        <ViewReportModal report={viewing} onClose={() => setViewing(null)} />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal lihat laporan (detail, mengikuti desain V3.1)
+// ---------------------------------------------------------------------------
+
+/** Tanggal periode laporan (YYYY-MM-DD / ISO) → Date lokal untuk segmentasi. */
+function parsePeriode(value: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+function weeksInRange(start: Date, end: Date) {
+  return eachWeekOfInterval({ start, end }, { weekStartsOn: 1 }).map((weekStart, index) => {
+    const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+    const s = weekStart < start ? start : weekStart;
+    const e = weekEnd > end ? end : weekEnd;
+    return {
+      title: `Minggu ${index + 1} (${fmtWib(s, "dd MMM")} - ${fmtWib(e, "dd MMM")})`,
+      start: s,
+      end: e,
+    };
+  });
+}
+
+function monthsInRange(start: Date, end: Date) {
+  return eachMonthOfInterval({ start, end }).map((monthStart) => {
+    const monthEnd = endOfMonth(monthStart);
+    return {
+      title: fmtWib(monthStart, "MMMM yyyy"),
+      start: monthStart < start ? start : startOfMonth(monthStart),
+      end: monthEnd > end ? end : monthEnd,
+    };
+  });
+}
+
+/** Potong rincian laporan ke rentang tanggal tertentu (per segmen). */
+function sliceRincian(rincian: LaporanDTO["rincian"], start: Date, end: Date): LaporanDTO["rincian"] {
+  const inRange = (t: string) => {
+    const d = toWibDate(t);
+    return !Number.isNaN(d.getTime()) && isWithinInterval(d, { start, end });
+  };
+  return {
+    penjualan: rincian.penjualan.filter((r) => inRange(r.tanggal)),
+    pembelian: rincian.pembelian.filter((r) => inRange(r.tanggal)),
+    konsinyasi: rincian.konsinyasi.filter((r) => inRange(r.tanggal)),
+    cashFlow: rincian.cashFlow.filter((r) => inRange(r.tanggal)),
+  };
+}
+
+function ViewReportModal({ report, onClose }: { report: LaporanDTO; onClose: () => void }) {
+  const { summary } = report;
+  const start = parsePeriode(report.periodeMulai);
+  const end = parsePeriode(report.periodeAkhir);
+
+  return (
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-6xl mx-4 h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+        <div>
+          <h2 style={{ color: '#000000' }}>Laporan Keuangan</h2>
+          <p style={{ color: GREEN }}>{report.id}</p>
+          <p className="text-sm mt-1" style={{ color: INK, opacity: 0.6 }}>
+            Periode: {periodeText(report)}
+          </p>
+        </div>
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: INK }}>
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="mb-6 p-6 rounded-lg border-2" style={{ borderColor: GREEN, backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+          <h3 className="mb-4" style={{ color: '#000000' }}>Ringkasan Total</h3>
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <p className="text-sm mb-1" style={{ color: INK, opacity: 0.6 }}>Total Pendapatan</p>
+              <p className="text-2xl" style={{ color: GREEN }}>{formatRp(summary.totalPemasukan)}</p>
+            </div>
+            <div>
+              <p className="text-sm mb-1" style={{ color: INK, opacity: 0.6 }}>Total Pengeluaran</p>
+              <p className="text-2xl" style={{ color: RED }}>{formatRp(summary.totalPengeluaran)}</p>
+            </div>
+            <div>
+              <p className="text-sm mb-1" style={{ color: INK, opacity: 0.6 }}>Laba Bersih</p>
+              <p className="text-2xl" style={{ color: summary.labaBersih >= 0 ? GREEN : RED }}>
+                {formatRp(summary.labaBersih)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {report.tipe === "daily" ? (
+          <RincianSections data={report.rincian} />
+        ) : report.tipe === "monthly" ? (
+          <div className="space-y-6">
+            {weeksInRange(start, end).map((week, i) => (
+              <div key={i} className="border-2 border-gray-200 rounded-lg p-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.01)' }}>
+                <h3 className="mb-4 pb-2 border-b-2" style={{ color: GREEN, borderColor: GREEN }}>{week.title}</h3>
+                <RincianSections data={sliceRincian(report.rincian, week.start, week.end)} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {monthsInRange(start, end).map((month, i) => (
+              <div key={i} className="border-2 border-gray-300 rounded-lg p-5" style={{ backgroundColor: 'rgba(39, 180, 70, 0.03)' }}>
+                <h2 className="mb-4 pb-3 border-b-2 text-xl" style={{ color: GREEN, borderColor: GREEN }}>{month.title}</h2>
+                <div className="space-y-5">
+                  {weeksInRange(month.start, month.end).map((week, j) => (
+                    <div key={j} className="border border-gray-200 rounded-lg p-4 bg-white">
+                      <h4 className="mb-3 pb-2 border-b" style={{ color: INK, borderColor: '#e5e7eb' }}>{week.title}</h4>
+                      <RincianSections data={sliceRincian(report.rincian, week.start, week.end)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200 flex-shrink-0">
+        <button
+          onClick={onClose}
+          className="w-full py-3 rounded-lg border transition-colors"
+          style={{ borderColor: RED, color: RED }}
+        >
+          Tutup
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Seksi data rincian (gaya DataSection desain V3.1)
+// ---------------------------------------------------------------------------
+
+interface SectionHead {
+  label: string;
+  align?: 'left' | 'right' | 'center';
+}
+
+function Section({ title, color, total, head, rows }: {
+  title: string;
+  color: string;
+  total?: string;
+  head: SectionHead[];
+  rows: React.ReactNode[][];
+}) {
+  return (
+    <div className="mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <h4 style={{ color: '#000000' }}>{title}</h4>
+        {total != null && <p style={{ color }}>{total}</p>}
+      </div>
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <table className="w-full">
+          <thead style={{ backgroundColor: '#f9fafb' }}>
+            <tr>
+              {head.map((h, i) => (
+                <th
+                  key={i}
+                  className="px-3 py-2 text-xs font-semibold"
+                  style={{ color: '#000000', textAlign: h.align ?? 'left' }}
+                >
+                  {h.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={head.length} className="px-3 py-4 text-center text-xs" style={{ color: INK, opacity: 0.4 }}>
+                  Tidak ada data
+                </td>
+              </tr>
+            ) : rows.map((cells, i) => (
+              <tr key={i} className="border-t border-gray-200">{cells}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Td({ children, align = 'left', color = INK, bold = false }: {
+  children: React.ReactNode;
+  align?: 'left' | 'right' | 'center';
+  color?: string;
+  bold?: boolean;
+}) {
+  return (
+    <td className={`px-3 py-2 text-xs${bold ? ' font-medium' : ''}`} style={{ color, textAlign: align }}>
+      {children}
+    </td>
+  );
+}
+
+/** Badge hijau "Ya" untuk pembelian dengan biaya bahan repack. */
+function RepackBadge({ value }: { value: number }) {
+  if (value <= 0) return <>-</>;
+  return (
+    <span className="inline-block px-2 py-0.5 rounded text-xs text-white" style={{ backgroundColor: GREEN }}>
+      Ya
+    </span>
+  );
+}
+
+function RincianSections({ data }: { data: LaporanDTO["rincian"] }) {
+  const pos = data.penjualan.filter((r) => r.asal === "offline");
+  const online = data.penjualan.filter((r) => r.asal === "commerce");
+  const cashIn = data.cashFlow.filter((r) => r.tipe === "in");
+  const cashOut = data.cashFlow.filter((r) => r.tipe === "out");
+  const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
+
+  return (
+    <>
+      <Section
+        title="Transaksi POS"
+        color={GREEN}
+        total={formatRp(sum(pos.map((r) => r.total)))}
+        head={[{ label: 'ID' }, { label: 'Tanggal' }, { label: 'Kasir' }, { label: 'Metode' }, { label: 'Total', align: 'right' }]}
+        rows={pos.map((r) => [
+          <Td key="id" color={GREEN}>{r.noPesanan}</Td>,
+          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy, HH:mm")}</Td>,
+          <Td key="kasir">{r.kasir || '-'}</Td>,
+          <Td key="metode">{r.metodeBayar || '-'}</Td>,
+          <Td key="total" align="right">{formatRp(r.total)}</Td>,
+        ])}
+      />
+
+      <Section
+        title="Transaksi Online"
+        color={GREEN}
+        total={formatRp(sum(online.map((r) => r.total)))}
+        head={[{ label: 'ID' }, { label: 'Tanggal' }, { label: 'Pelanggan' }, { label: 'Asal' }, { label: 'Total', align: 'right' }]}
+        rows={online.map((r) => [
+          <Td key="id" color={GREEN}>{r.noPesanan}</Td>,
+          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy, HH:mm")}</Td>,
+          <Td key="pelanggan">{r.namaPelanggan || '-'}</Td>,
+          <Td key="asal">{r.asal === "commerce" ? 'Commerce' : 'Offline'}</Td>,
+          <Td key="total" align="right">{formatRp(r.total)}</Td>,
+        ])}
+      />
+
+      <Section
+        title="Pembelian"
+        color={RED}
+        total={formatRp(sum(data.pembelian.map((r) => r.grandTotal)))}
+        head={[
+          { label: 'No. Pembelian' }, { label: 'Tanggal' }, { label: 'Supplier' },
+          { label: 'Repack', align: 'center' }, { label: 'Total', align: 'right' }, { label: 'Laba', align: 'right' },
+        ]}
+        rows={data.pembelian.map((r) => [
+          <Td key="no" color={GREEN}>{r.noPembelian}</Td>,
+          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
+          <Td key="supplier">{r.supplier || '-'}</Td>,
+          <Td key="repack" align="center"><RepackBadge value={r.biayaRepack} /></Td>,
+          <Td key="total" align="right" color={RED}>
+            {formatRp(r.grandTotal)}
+            {r.biayaRepack > 0 && (
+              <span className="block text-xs" style={{ color: INK, opacity: 0.6 }}>
+                (Repack: {formatRp(r.biayaRepack)})
+              </span>
+            )}
+          </Td>,
+          <Td key="laba" align="right" color={r.estimasiLaba >= 0 ? GREEN : RED}>{formatRp(r.estimasiLaba)}</Td>,
+        ])}
+      />
+
+      <Section
+        title="Konsinyasi"
+        color={RED}
+        total={formatRp(sum(data.konsinyasi.map((r) => r.totalDibayar)))}
+        head={[
+          { label: 'No. Konsinyasi' }, { label: 'Tanggal' }, { label: 'Vendor' },
+          { label: 'Nilai Konsinyasi', align: 'right' }, { label: 'Yang Dibayar', align: 'right' },
+          { label: 'Dikembalikan', align: 'right' },
+        ]}
+        rows={data.konsinyasi.map((r) => [
+          <Td key="no" color={GREEN}>{r.noKonsinyasi}</Td>,
+          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
+          <Td key="vendor">{r.supplier || '-'}</Td>,
+          <Td key="nilai" align="right">{formatRp(r.totalNilaiKonsinyasi)}</Td>,
+          <Td key="bayar" align="right" color={RED}>{formatRp(r.totalDibayar)}</Td>,
+          <Td key="kembali" align="right" color="#3b82f6">{formatRp(r.totalDikembalikan)}</Td>,
+        ])}
+      />
+
+      <Section
+        title="Cash In"
+        color={GREEN}
+        total={formatRp(sum(cashIn.map((r) => r.jumlah)))}
+        head={[{ label: 'Tanggal' }, { label: 'Keterangan' }, { label: 'Jumlah', align: 'right' }]}
+        rows={cashIn.map((r) => [
+          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
+          <Td key="ket">{r.keterangan || '-'}</Td>,
+          <Td key="jml" align="right" color={GREEN}>{formatRp(r.jumlah)}</Td>,
+        ])}
+      />
+
+      <Section
+        title="Cash Out"
+        color={RED}
+        total={formatRp(sum(cashOut.map((r) => r.jumlah)))}
+        head={[{ label: 'Tanggal' }, { label: 'Keterangan' }, { label: 'Jumlah', align: 'right' }]}
+        rows={cashOut.map((r) => [
+          <Td key="tgl">{fmtWib(r.tanggal, "dd MMM yyyy")}</Td>,
+          <Td key="ket">{r.keterangan || '-'}</Td>,
+          <Td key="jml" align="right" color={RED}>{formatRp(r.jumlah)}</Td>,
+        ])}
+      />
+    </>
   );
 }

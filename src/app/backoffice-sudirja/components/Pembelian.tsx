@@ -14,13 +14,13 @@ import { parseCsv } from "./BulkUploadReference";
 import BulkUploadModal, { type BulkUploadFailure, type BulkUploadOutcome } from "./BulkUploadModal";
 import Modal from "./Modal";
 import DatePicker from "./DatePicker";
-import type { CreatePembelianPecahanInput, PembelianDTO } from "@/lib/pembelian-types";
+import type { CreatePembelianPecahanInput, PembelianDTO, PembelianItemDTO } from "@/lib/pembelian-types";
 import type { SupplierDTO } from "@/lib/supplier-types";
 import type { KategoriDTO, MerkDTO, ProdukDTO, SatuanDTO } from "@/lib/product-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
   X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2, Eye,
-  Download, Upload, Building2, Calendar, TrendingUp, Split, Layers, Info
+  Download, Upload, Building2, Calendar, TrendingUp, TrendingDown, Split, Layers, Info
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -280,6 +280,7 @@ function NewProdukPanel({
                     aria-label={`Nama satuan baru baris ${idx + 1}`}
                     placeholder="Nama satuan baru" className={fieldClass} style={inputStyle} />
                   <input type="number" min={1} value={row.jumlahUnitBaru} onChange={(e) => updateRow(idx, { jumlahUnitBaru: e.target.value })}
+                    onWheel={(e) => e.currentTarget.blur()}
                     aria-label={`Jumlah unit satuan baru baris ${idx + 1}`}
                     placeholder="Jumlah unit" className={fieldClass} style={inputStyle} />
                 </>
@@ -288,6 +289,7 @@ function NewProdukPanel({
                 aria-label={`Kode item baris ${idx + 1}`}
                 placeholder="Kode item (barcode)" className={fieldClass} style={inputStyle} />
               <input type="number" min={0} value={row.harga} onChange={(e) => updateRow(idx, { harga: e.target.value })}
+                onWheel={(e) => e.currentTarget.blur()}
                 aria-label={`Harga jual baris ${idx + 1}`}
                 placeholder="Harga jual" className={`${fieldClass} text-right`} style={inputStyle} />
             </div>
@@ -755,12 +757,9 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
   };
 
   return (
-    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[94vh] overflow-hidden shadow-2xl flex flex-col">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-6xl mx-4 max-h-[95vh] overflow-hidden shadow-2xl flex flex-col">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h2 style={{ color: '#000000' }}>Buat Pembelian Baru</h2>
-            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Pencatatan pembelian produk dari supplier (stok bertambah)</p>
-          </div>
+          <h2 style={{ color: '#000000' }}>Buat Pembelian Baru</h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
             <X className="w-5 h-5" />
           </button>
@@ -780,14 +779,17 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                 </p>
               </div>
             )}
+            {/* Layout 2 kolom ala desain V3.1: kiri info & produk, kanan Ringkasan Total */}
+            <div className={`grid grid-cols-1 gap-5 ${items.length > 0 ? "lg:grid-cols-3" : ""}`}>
+            <div className={`space-y-5 ${items.length > 0 ? "lg:col-span-2" : ""}`}>
             {/* Info dasar */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <label>
                 <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Tanggal *</span>
                 <DatePicker value={tanggal} onChange={setTanggal} placeholder="Pilih tanggal"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
               </label>
-              <label className="col-span-1">
+              <label>
                 <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Supplier *</span>
                 <div className="relative">
                   <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
@@ -801,9 +803,10 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
               <label>
                 <span className="block mb-1 text-sm" style={{ color: '#000000' }}>PPN (%)</span>
                 <input type="number" min="0" max="100" value={ppn} onChange={(e) => setPpn(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
+                  onWheel={(e) => e.currentTarget.blur()}
+                  className="w-32 px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
               </label>
-              <label className="col-span-3">
+              <label>
                 <span className="block mb-1 text-sm" style={{ color: '#000000' }}>Catatan</span>
                 <input value={catatan} onChange={(e) => setCatatan(e.target.value)} placeholder="Catatan (opsional)"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2" style={inputStyle} />
@@ -873,6 +876,51 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                 onBatal={() => setShowNewProduk(false)}
               />
             )}
+
+            </div>
+
+            {/* Ringkasan Total — kolom kanan (desain V3.1) */}
+            {items.length > 0 && (
+              <div className="lg:col-span-1">
+                <div className="p-4 rounded-lg border-2 lg:sticky lg:top-0" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+                  <h3 className="mb-3" style={{ color: '#000000' }}>Ringkasan Total</h3>
+                  <div className="space-y-2">
+                    {(() => {
+                      const subtotalItems = round2(items.reduce((sum, it) => sum + Math.round(it.hargaBeli * it.qty * (1 - it.diskon / 100) * 100) / 100, 0));
+                      const totalBahan = round2(items.reduce((sum, it) => sum + it.bahan.reduce((s, b) => s + (b.biaya || 0), 0), 0));
+                      const subtotalRepack = round2(subtotalItems + totalBahan);
+                      const ppnAmount = round2((subtotalRepack * (Number(ppn) || 0)) / 100);
+                      const grandTotal = round2(subtotalRepack + ppnAmount);
+                      return (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span style={{ color: '#1a0408', opacity: 0.7 }}>Subtotal Pembelian</span>
+                            <span style={{ color: '#1a0408' }}>{formatRp(subtotalItems)}</span>
+                          </div>
+                          {totalBahan > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span style={{ color: '#1a0408', opacity: 0.7 }}>Total Biaya Repack</span>
+                              <span style={{ color: '#1a0408' }}>{formatRp(totalBahan)}</span>
+                            </div>
+                          )}
+                          {Number(ppn) > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span style={{ color: '#1a0408', opacity: 0.7 }}>PPn ({ppn}%)</span>
+                              <span style={{ color: '#1a0408' }}>{formatRp(ppnAmount)}</span>
+                            </div>
+                          )}
+                          <div className="pt-2 border-t-2 border-gray-300 flex justify-between items-center">
+                            <span className="text-sm" style={{ color: '#000000' }}>Grand Total</span>
+                            <span className="text-xl" style={{ color: '#27b446' }}>{formatRp(grandTotal)}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            )}
+            </div>
 
             {/* Items */}
             <div>
@@ -958,6 +1006,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                     <Minus className="w-3.5 h-3.5" />
                                   </button>
                                   <input type="number" value={it.qty} min={1} onChange={(e) => updateItem(idx, { qty: Math.max(1, Number(e.target.value) || 1) })}
+                                    onWheel={(e) => e.currentTarget.blur()}
                                     className="w-12 text-center rounded border border-gray-300 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
                                   <button type="button" onClick={() => updateItem(idx, { qty: it.qty + 1 })}
                                     className="w-7 h-7 rounded border flex items-center justify-center" style={{ borderColor: '#27b446', color: '#27b446' }}>
@@ -967,14 +1016,17 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                               </td>
                               <td className="px-4 py-2">
                                 <input type="number" value={it.hargaBeli || ""} onChange={(e) => updateItem(idx, { hargaBeli: Number(e.target.value) })}
+                                  onWheel={(e) => e.currentTarget.blur()}
                                   placeholder="0" className="w-full text-right rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
                               </td>
                               <td className="px-4 py-2">
                                 <input type="number" value={it.hargaJual || ""} onChange={(e) => updateItem(idx, { hargaJual: Number(e.target.value) })}
+                                  onWheel={(e) => e.currentTarget.blur()}
                                   placeholder="0" className="w-full text-right rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
                               </td>
                               <td className="px-4 py-2">
                                 <input type="number" min="0" max="100" value={it.diskon || ""} onChange={(e) => updateItem(idx, { diskon: Number(e.target.value) || 0 })}
+                                  onWheel={(e) => e.currentTarget.blur()}
                                   placeholder="0" className="w-full text-right rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
                               </td>
                               <td className="px-4 py-2 text-right" style={{ color: '#27b446', fontWeight: 500 }}>
@@ -1125,12 +1177,14 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                               <td className="px-2 py-1.5">
                                                 <input type="number" min={1} value={p.qty || ""}
                                                   onChange={(e) => updatePecahan(idx, pi, { qty: Number(e.target.value) })}
+                                                  onWheel={(e) => e.currentTarget.blur()}
                                                   aria-label={`Qty pecahan ${pi + 1} ${it.nama}`}
                                                   className="w-full text-center rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
                                               </td>
                                               <td className="px-2 py-1.5">
                                                 <input type="number" min={0} value={p.isiBase ?? ""} placeholder="mis. 250"
                                                   onChange={(e) => updatePecahan(idx, pi, { isiBase: e.target.value === "" ? null : Number(e.target.value) })}
+                                                  onWheel={(e) => e.currentTarget.blur()}
                                                   aria-label={`Isi gram pecahan ${pi + 1} ${it.nama}`}
                                                   className="w-full text-center rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
                                               </td>
@@ -1141,6 +1195,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                                       style={{ backgroundColor: 'rgba(39, 180, 70, 0.12)', color: '#27b446' }}>auto</span>
                                                   )}
                                                   <input type="number" min={0} value={nilaiAlokasi}
+                                                    onWheel={(e) => e.currentTarget.blur()}
                                                     onChange={(e) => {
                                                       const v = e.target.value;
                                                       // Kosong = kembali ke alokasi otomatis.
@@ -1183,6 +1238,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                                       <span className="block mb-1 text-[10px]" style={{ color: '#1a0408', opacity: 0.6 }}>JUMLAH UNIT</span>
                                                       <input type="number" min={1} value={p.jumlahUnitBaru}
                                                         onChange={(e) => updatePecahan(idx, pi, { jumlahUnitBaru: e.target.value })}
+                                                        onWheel={(e) => e.currentTarget.blur()}
                                                         aria-label={`Jumlah unit satuan baru pecahan ${pi + 1} ${it.nama}`}
                                                         placeholder="1"
                                                         className="w-[90px] text-center rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
@@ -1255,49 +1311,10 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
           </div>
         </div>
 
-        {items.length > 0 && (
-          <div className="mx-6 mb-4 p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
-            <h3 className="mb-3 text-sm font-medium" style={{ color: '#000000' }}>Ringkasan Total</h3>
-            <div className="space-y-2">
-              {(() => {
-                const subtotalItems = round2(items.reduce((sum, it) => sum + Math.round(it.hargaBeli * it.qty * (1 - it.diskon / 100) * 100) / 100, 0));
-                const totalBahan = round2(items.reduce((sum, it) => sum + it.bahan.reduce((s, b) => s + (b.biaya || 0), 0), 0));
-                const subtotalRepack = round2(subtotalItems + totalBahan);
-                const ppnAmount = round2((subtotalRepack * (Number(ppn) || 0)) / 100);
-                const grandTotal = round2(subtotalRepack + ppnAmount);
-                return (
-                  <>
-                    <div className="flex justify-between text-sm">
-                      <span style={{ color: '#1a0408', opacity: 0.7 }}>Subtotal Pembelian</span>
-                      <span style={{ color: '#1a0408' }}>{formatRp(subtotalItems)}</span>
-                    </div>
-                    {totalBahan > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span style={{ color: '#1a0408', opacity: 0.7 }}>Total Biaya Repack</span>
-                        <span style={{ color: '#1a0408' }}>{formatRp(totalBahan)}</span>
-                      </div>
-                    )}
-                    {Number(ppn) > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span style={{ color: '#1a0408', opacity: 0.7 }}>PPn ({ppn}%)</span>
-                        <span style={{ color: '#1a0408' }}>{formatRp(ppnAmount)}</span>
-                      </div>
-                    )}
-                    <div className="pt-2 border-t-2 border-gray-300 flex justify-between items-center">
-                      <span className="text-sm font-medium" style={{ color: '#000000' }}>Grand Total</span>
-                      <span className="text-xl font-semibold" style={{ color: '#27b446' }}>{formatRp(grandTotal)}</span>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border transition-colors hover:bg-red-50" style={{ borderColor: '#e40b18', color: '#e40b18' }}>Batal</button>
+        <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-lg border transition-colors hover:bg-red-50" style={{ borderColor: '#e40b18', color: '#e40b18' }}>Batal</button>
           <button onClick={() => void submit()} disabled={busy}
-            className="px-6 py-2 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: '#27b446' }}>
             {busy ? "Menyimpan..." : "Simpan Pembelian"}
           </button>
@@ -1310,9 +1327,19 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 // Detail Modal
 // ---------------------------------------------------------------------------
 
+/** Laba estimasi per item (cermin `estimasiLaba` server): pecahan → Σ (jual − alokasi)×qty;
+ *  tanpa pecahan → (jual − beli setelah diskon)×qty; dikurangi biaya bahan repack. */
+function labaItemDto(it: PembelianItemDTO): number {
+  const pecahan = Array.isArray(it.pecahan) ? it.pecahan : [];
+  const labaIsi = pecahan.length
+    ? pecahan.reduce((s, p) => s + ((p.hargaJualSatuan ?? 0) - p.hargaBeliAlokasi) * p.qty, 0)
+    : (it.hargaJual - it.hargaBeli * (1 - it.diskon / 100)) * it.qty;
+  return labaIsi - (it.biayaRepack || 0);
+}
+
 function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose: () => void; onDelete: (id: number) => void }) {
   return (
-    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+    <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 style={{ color: '#000000' }}>Detail Pembelian</h2>
@@ -1339,17 +1366,21 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
             </div>
           </div>
 
+          {/* Daftar Produk (judul kartu ala desain V3.1) */}
+          <h3 className="mb-3" style={{ color: '#000000' }}>Daftar Produk</h3>
           <div className="rounded-lg border border-gray-200 overflow-hidden mb-5">
             <table className="w-full">
               <thead style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs" style={{ color: '#1a0408' }}>Produk</th>
-                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Satuan</th>
-                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Qty</th>
-                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>H.Beli</th>
-                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Diskon</th>
-                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>H.Jual</th>
-                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Subtotal</th>
+                  <th className="px-4 py-2 text-left text-xs" style={{ color: '#000000' }}>SKU</th>
+                  <th className="px-4 py-2 text-left text-xs" style={{ color: '#000000' }}>Nama Produk</th>
+                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#000000' }}>Satuan</th>
+                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#000000' }}>Qty</th>
+                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#000000' }}>Harga Beli</th>
+                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#000000' }}>Harga Jual</th>
+                  <th className="px-4 py-2 text-center text-xs" style={{ color: '#000000' }}>Diskon</th>
+                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#000000' }}>Total</th>
+                  <th className="px-4 py-2 text-right text-xs" style={{ color: '#000000' }}>Laba</th>
                 </tr>
               </thead>
               <tbody>
@@ -1360,15 +1391,40 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
                     <Fragment key={it.id}>
                       <tr className="border-b border-gray-100 last:border-0">
                         <td className="px-4 py-2">
-                          <p style={{ color: '#1a0408' }}>{it.namaProduk}</p>
                           <p className="text-xs font-mono" style={{ color: '#27b446' }}>{it.sku}</p>
+                        </td>
+                        <td className="px-4 py-2">
+                          <p style={{ color: '#1a0408' }}>{it.namaProduk}</p>
+                          {it.isRepack && (
+                            <span className="inline-block mt-1 px-2 py-0.5 rounded text-xs text-white" style={{ backgroundColor: '#27b446' }}>
+                              Repack ({it.jumlahRepack}x)
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2 text-center" style={{ color: '#1a0408' }}>{it.satuanNama ?? "-"}</td>
                         <td className="px-4 py-2 text-center" style={{ color: '#1a0408' }}>{it.qty}</td>
                         <td className="px-4 py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(it.hargaBeli)}</td>
-                        <td className="px-4 py-2 text-right" style={{ color: '#1a0408' }}>{it.diskon > 0 ? `${it.diskon}%` : "-"}</td>
                         <td className="px-4 py-2 text-right" style={{ color: '#1a0408' }}>{formatRp(it.hargaJual)}</td>
-                        <td className="px-4 py-2 text-right" style={{ color: '#27b446' }}>{formatRp(it.subtotal)}</td>
+                        <td className="px-4 py-2 text-center" style={{ color: '#1a0408' }}>{it.diskon > 0 ? `${it.diskon}%` : "-"}</td>
+                        <td className="px-4 py-2 text-right">
+                          <p style={{ color: '#000000' }}>{formatRp(it.subtotal)}</p>
+                          {it.biayaRepack > 0 && (
+                            <p className="text-xs" style={{ color: '#1a0408', opacity: 0.6 }}>Repack: +{formatRp(it.biayaRepack)}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {(() => {
+                            const labaItem = round2(labaItemDto(it));
+                            return (
+                              <>
+                                <p style={{ color: labaItem < 0 ? '#e40b18' : '#27b446' }}>{formatRp(labaItem)}</p>
+                                <p className="text-xs" style={{ color: '#1a0408', opacity: 0.6 }}>
+                                  ({it.hargaBeli > 0 ? `${round2(((it.hargaJual - it.hargaBeli * (1 - it.diskon / 100)) / it.hargaBeli) * 100)}%` : "—"})
+                                </p>
+                              </>
+                            );
+                          })()}
+                        </td>
                       </tr>
                       {pecahan.map((p) => {
                         // Data lama mungkin belum punya hargaJualSatuan → guard.
@@ -1376,6 +1432,7 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
                         const labaBaris = round2(((hargaJualSatuan ?? 0) - p.hargaBeliAlokasi) * p.qty);
                         return (
                         <tr key={`${it.id}-pecahan-${p.id}`} style={{ backgroundColor: '#fcfaff' }}>
+                          <td className="px-4 py-1.5" />
                           <td className="px-4 py-1.5 pl-8">
                             <span className="inline-flex items-center gap-1 text-xs" style={{ color: '#27b446' }}>
                               <Layers className="w-3 h-3" /> Pecahan
@@ -1389,17 +1446,13 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
                             </span>
                           </td>
                           <td className="px-4 py-1.5 text-right text-xs" style={{ color: '#1a0408', opacity: 0.85 }}>{formatRp(p.hargaBeliAlokasi)}</td>
-                          <td className="px-4 py-1.5 text-right text-xs" style={{ color: '#1a0408', opacity: 0.5 }}>—</td>
                           <td className="px-4 py-1.5 text-right text-xs" style={{ color: hargaJualSatuan === null ? '#1a0408' : undefined, opacity: hargaJualSatuan === null ? 0.5 : 0.85 }}>
                             {hargaJualSatuan === null ? "—" : formatRp(hargaJualSatuan)}
                           </td>
-                          <td className="px-4 py-1.5 text-right text-xs" style={{ color: '#27b446' }}>
-                            {formatRp(p.subtotalAlokasi)}
-                            {hargaJualSatuan !== null && (
-                              <span className="block text-[10px]" style={{ color: labaBaris < 0 ? '#e40b18' : '#27b446', opacity: 0.8 }}>
-                                laba {formatRp(labaBaris)}
-                              </span>
-                            )}
+                          <td className="px-4 py-1.5 text-center text-xs" style={{ color: '#1a0408', opacity: 0.5 }}>—</td>
+                          <td className="px-4 py-1.5 text-right text-xs" style={{ color: '#000000' }}>{formatRp(p.subtotalAlokasi)}</td>
+                          <td className="px-4 py-1.5 text-right text-xs" style={{ color: labaBaris < 0 ? '#e40b18' : '#27b446' }}>
+                            {hargaJualSatuan === null ? "—" : formatRp(labaBaris)}
                           </td>
                         </tr>
                         );
@@ -1412,27 +1465,34 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
           </div>
 
           <div className="p-4 rounded-lg border-2" style={{ borderColor: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+            <h3 className="mb-3" style={{ color: '#000000' }}>Ringkasan</h3>
             <div className="flex justify-between text-sm mb-1">
-              <span style={{ color: '#1a0408' }}>Subtotal Pembelian</span>
-              <span style={{ color: '#1a0408' }}>{formatRp(data.totalPembelian)}</span>
+              <span style={{ color: '#1a0408', opacity: 0.7 }}>Subtotal Pembelian</span>
+              <span style={{ color: '#1a0408' }}>{formatRp(round2(data.totalPembelian - data.totalBiayaRepack))}</span>
             </div>
+            {data.totalBiayaRepack > 0 && (
+              <div className="flex justify-between text-sm mb-1">
+                <span style={{ color: '#1a0408', opacity: 0.7 }}>Total Biaya Repack</span>
+                <span style={{ color: '#1a0408' }}>{formatRp(data.totalBiayaRepack)}</span>
+              </div>
+            )}
             {data.totalPpn > 0 && (
               <div className="flex justify-between text-sm mb-1">
-                <span style={{ color: '#1a0408' }}>PPN ({data.ppn}%)</span>
+                <span style={{ color: '#1a0408', opacity: 0.7 }}>PPn ({data.ppn}%)</span>
                 <span style={{ color: '#1a0408' }}>{formatRp(data.totalPpn)}</span>
               </div>
             )}
-            <div className="flex justify-between pt-2 border-t border-gray-200">
-              <span style={{ color: '#000000' }}>Grand Total</span>
-              <span className="text-lg" style={{ color: '#27b446' }}>{formatRp(data.grandTotal)}</span>
+            <div className="pt-2 border-t-2 border-gray-300 flex justify-between items-center">
+              <span className="text-lg" style={{ color: '#000000' }}>Grand Total</span>
+              <span className="text-xl" style={{ color: '#27b446' }}>{formatRp(data.grandTotal)}</span>
             </div>
-            <div className="flex justify-between pt-2 border-t border-gray-200">
+            <div className="pt-2 border-t border-gray-200 flex justify-between items-center">
               <div>
-                <p style={{ color: '#000000' }}>Estimasi Laba (jika semua terjual)</p>
-                <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Selisih harga jual − harga beli</p>
+                <p style={{ color: '#000000' }}>Total Laba (Estimasi)</p>
+                <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Jika semua produk terjual</p>
               </div>
-              <p className="text-xl flex items-center gap-1" style={{ color: '#27b446' }}>
-                <TrendingUp className="w-5 h-5" /> {formatRp(data.estimasiLaba)}
+              <p className="text-2xl flex items-center gap-1" style={{ color: data.estimasiLaba < 0 ? '#e40b18' : '#27b446' }}>
+                {data.estimasiLaba < 0 ? <TrendingDown className="w-5 h-5" /> : <TrendingUp className="w-5 h-5" />} {formatRp(data.estimasiLaba)}
               </p>
             </div>
           </div>
@@ -1440,8 +1500,8 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
 
         <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between gap-3">
           <button onClick={() => onDelete(data.id)}
-            className="px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
-            style={{ borderColor: '#e40b18', color: '#e40b18' }}>
+            className="px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90"
+            style={{ backgroundColor: '#e40b18' }}>
             Hapus (kembalikan stok)
           </button>
           <button onClick={onClose} className="px-5 py-2 rounded-lg border transition-colors hover:bg-red-50"
@@ -1500,21 +1560,9 @@ export default function Pembelian() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [showAddMenu, setShowAddMenu] = useState(false);
   const [viewing, setViewing] = useState<PembelianDTO | null>(null);
   const [busy, setBusy] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
-  const addMenuRef = useRef<HTMLDivElement>(null);
-
-  // Tutup dropdown "Tambah Data" saat klik di luar.
-  useEffect(() => {
-    if (!showAddMenu) return;
-    const onDown = (e: MouseEvent) => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setShowAddMenu(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [showAddMenu]);
 
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search); setPagination((p) => ({ ...p, page: 1 })); }, 300);
@@ -1688,40 +1736,30 @@ export default function Pembelian() {
             <div>
               <h1 style={{ color: '#000000' }}>Pembelian</h1>
               <p className="mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>
-                Pencatatan pembelian produk dari supplier (stok bertambah)
+                Kelola data pembelian dan restock produk
               </p>
             </div>
             <div className="flex items-center gap-3">
               <button onClick={() => void exportData()}
-                className="flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all hover:opacity-90"
-                style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'rgba(39, 180, 70, 0.05)' }}
+                className="flex items-center gap-2 px-6 py-3 rounded-lg border-2 transition-colors"
+                style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'white' }}
                 title="Export seluruh data pembelian (CSV)">
                 <Download className="w-5 h-5" />
                 Export Data
               </button>
-              <div className="relative" ref={addMenuRef}>
-                <button onClick={() => setShowAddMenu(!showAddMenu)}
-                  className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
-                  style={{ backgroundColor: '#27b446' }}>
-                  <Plus className="w-5 h-5" />
-                  Tambah Data
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {showAddMenu && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
-                      <button onClick={() => { setShowAddMenu(false); setShowCreate(true); }}
-                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors" style={{ color: '#1a0408' }}>
-                        <Plus className="w-5 h-5" style={{ color: '#27b446' }} />
-                        <div><p style={{ color: '#000000' }}>Manual</p><p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Isi form satu per satu</p></div>
-                      </button>
-                      <button onClick={() => { setShowAddMenu(false); setShowBulk(true); }}
-                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors border-t border-gray-200" style={{ color: '#1a0408' }}>
-                        <Upload className="w-5 h-5" style={{ color: '#27b446' }} />
-                        <div><p style={{ color: '#000000' }}>Bulk Upload</p><p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>CSV</p></div>
-                      </button>
-                    </div>
-                )}
-              </div>
+              <button onClick={() => setShowBulk(true)}
+                className="flex items-center gap-2 px-6 py-3 rounded-lg border-2 transition-colors"
+                style={{ borderColor: '#27b446', color: '#27b446', backgroundColor: 'white' }}
+                title="Bulk upload pembelian dari CSV">
+                <Upload className="w-5 h-5" />
+                Bulk Upload
+              </button>
+              <button onClick={() => setShowCreate(true)}
+                className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#27b446' }}>
+                <Plus className="w-5 h-5" />
+                Buat Pembelian Baru
+              </button>
             </div>
           </div>
         </div>
@@ -1729,16 +1767,18 @@ export default function Pembelian() {
         {/* Filter */}
         <div className="bg-white border-b border-gray-200 px-8 py-4">
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex-1 min-w-[220px] relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari no. pembelian atau supplier..."
-                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
-                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any} />
+            <div className="flex-1 min-w-[250px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5" style={{ color: '#1a0408', opacity: 0.4 }} />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari Nomor Pembelian atau Supplier..."
+                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                  style={inputStyle} />
+              </div>
             </div>
             <button onClick={() => setShowDateFilter(!showDateFilter)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors"
               style={{ backgroundColor: showDateFilter ? '#27b446' : 'white', borderColor: '#27b446', color: showDateFilter ? 'white' : '#27b446' }}>
-              <Calendar className="w-5 h-5" /> Filter Tanggal
+              Filter Tanggal
             </button>
             {hasActiveFilters && (
               <button onClick={clearFilters} className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors"
@@ -1763,6 +1803,14 @@ export default function Pembelian() {
               </div>
             </div>
           )}
+
+          {/* Results count */}
+          <div className="mt-4">
+            <p style={{ color: '#1a0408', opacity: 0.6 }}>
+              Menampilkan {items.length} dari {pagination.total} data
+              {hasActiveFilters && " (difilter)"}
+            </p>
+          </div>
         </div>
 
         {/* Content */}
@@ -1772,7 +1820,7 @@ export default function Pembelian() {
               <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
             </div>
           )}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             {loading ? (
               <div className="py-16 text-center"><p style={{ color: '#1a0408', opacity: 0.6 }}>Memuat data pembelian...</p></div>
             ) : items.length > 0 ? (
@@ -1780,10 +1828,10 @@ export default function Pembelian() {
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr style={{ backgroundColor: '#fcfaff', borderBottom: '2px solid #e5e7eb' }}>
+                      <tr style={{ backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
                         <th className="px-6 py-4 text-left">
                           <button onClick={() => handleSort("no_pembelian")} className="flex items-center gap-2 hover:opacity-70 transition-opacity" style={{ color: '#000000' }}>
-                            No. Pembelian {getSortIcon("no_pembelian")}
+                            Nomor Pembelian {getSortIcon("no_pembelian")}
                           </button>
                         </th>
                         <th className="px-6 py-4 text-left">
@@ -1796,21 +1844,21 @@ export default function Pembelian() {
                             Supplier {getSortIcon("supplier")}
                           </button>
                         </th>
-                        <th className="px-6 py-4 text-center" style={{ color: '#000000' }}>Item</th>
+                        <th className="px-6 py-4 text-center" style={{ color: '#000000' }}>Jumlah Item</th>
                         <th className="px-6 py-4 text-right" style={{ color: '#000000' }}>Total Beli</th>
                         <th className="px-6 py-4 text-right" style={{ color: '#000000' }}>Estimasi Laba</th>
                         <th className="px-6 py-4 text-center" style={{ color: '#000000' }}>Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((p, index) => (
-                        <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                          style={{ backgroundColor: index % 2 === 0 ? 'white' : '#fcfaff' }}>
-                          <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(p)} style={{ color: '#27b446', fontFamily: 'monospace' }}>{p.noPembelian}</td>
-                          <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(p)} style={{ color: '#1a0408' }}>
+                      {items.map((p) => (
+                        <tr key={p.id} onClick={() => setViewing(p)}
+                          className="border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4" style={{ color: '#27b446', fontFamily: 'monospace' }}>{p.noPembelian}</td>
+                          <td className="px-6 py-4" style={{ color: '#1a0408' }}>
                             {fmtWib(p.tanggal, "dd MMM yyyy")}
                           </td>
-                          <td className="px-6 py-4 cursor-pointer" onClick={() => setViewing(p)} style={{ color: '#1a0408' }}>
+                          <td className="px-6 py-4" style={{ color: '#1a0408' }}>
                             <div className="flex items-center gap-2"><Building2 className="w-4 h-4 shrink-0" style={{ color: '#27b446' }} />{p.supplier.nama}</div>
                             <p className="text-xs font-mono" style={{ color: '#27b446' }}>{p.supplier.kode}</p>
                           </td>
@@ -1839,12 +1887,12 @@ export default function Pembelian() {
                     <div className="relative">
                       <select value={pagination.pageSize} onChange={(e) => { setPagination((p) => ({ ...p, pageSize: Number(e.target.value), page: 1 })); }}
                         className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 cursor-pointer"
-                        style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}>
+                        style={inputStyle}>
                         <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option>
                       </select>
                       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
                     </div>
-                    <span style={{ color: '#1a0408', opacity: 0.7 }}>Menampilkan {rangeStart} - {rangeEnd} dari {pagination.total} pembelian</span>
+                    <span style={{ color: '#1a0408', opacity: 0.7 }}>Menampilkan {rangeStart} - {rangeEnd} dari {pagination.total} data</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setPagination((p) => ({ ...p, page: Math.max(1, p.page - 1) }))} disabled={pagination.page === 1}
