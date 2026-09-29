@@ -6,15 +6,16 @@ import {
   bulkCreatePembelian, createPembelian, deletePembelian, downloadPembelianCsv, listPembelian,
 } from "@/lib/pembelian-api";
 import { listSupplier } from "@/lib/supplier-api";
+import { updateStok } from "@/lib/stok-api";
 import {
   createKategori, createMerk, createProduk, createSatuan,
-  listAllActiveKategori, listAllActiveMerk, listAllActiveSatuan, listProduk, updateProduk,
+  listAllActiveKategori, listAllActiveMerk, listAllActiveSatuan, listProduk,
 } from "@/lib/product-api";
 import { parseCsv } from "./BulkUploadReference";
 import BulkUploadModal, { type BulkUploadFailure, type BulkUploadOutcome } from "./BulkUploadModal";
 import Modal from "./Modal";
 import DatePicker from "./DatePicker";
-import type { CreatePembelianPecahanInput, PembelianDTO, PembelianItemDTO } from "@/lib/pembelian-types";
+import type { PembelianDTO, PembelianItemDTO } from "@/lib/pembelian-types";
 import type { SupplierDTO } from "@/lib/supplier-types";
 import type { KategoriDTO, MerkDTO, ProdukDTO, SatuanDTO } from "@/lib/product-types";
 import {
@@ -64,10 +65,12 @@ interface NewSatuanRow {
   kodeItem: string;
   /** Disimpan sebagai string supaya kosong ≠ 0. */
   harga: string;
+  /** Stok awal per satuan — string: kosong = 0. */
+  stok: string;
 }
 
 const emptySatuanRow = (rowId: number): NewSatuanRow =>
-  ({ rowId, satuanKode: "", satuanNamaBaru: "", jumlahUnitBaru: "", kodeItem: "", harga: "" });
+  ({ rowId, satuanKode: "", satuanNamaBaru: "", jumlahUnitBaru: "", kodeItem: "", harga: "", stok: "" });
 
 /**
  * Panel inline untuk membuat produk + satuannya tanpa keluar dari form
@@ -133,6 +136,8 @@ function NewProdukPanel({
       if (!kodeItem) return `${label}: kode item wajib diisi.`;
       if (!KODE_ITEM_PATTERN.test(kodeItem)) return `${label}: kode item hanya boleh huruf/angka/-/_ (maks 64 karakter).`;
       if (!r.harga.trim() || !Number.isFinite(Number(r.harga)) || Number(r.harga) < 0) return `${label}: harga jual wajib diisi dan tidak boleh negatif.`;
+      const stok = r.stok.trim();
+      if (stok !== "" && (!Number.isInteger(Number(stok)) || Number(stok) < 0)) return `${label}: stok awal harus angka bulat 0 atau lebih.`;
     }
     const kodeSatuan = rows.map((r) => r.satuanKode).filter((k) => k && k !== NEW_REF_VALUE);
     if (new Set(kodeSatuan).size !== kodeSatuan.length) return "Satu satuan tidak boleh dipakai dua kali.";
@@ -176,6 +181,20 @@ function NewProdukPanel({
           harga: Number(r.harga),
         })),
       });
+
+      // Stok awal per satuan (opsional). Baris stok sudah dibuat server (qty 0),
+      // diisi lewat API stok yang sama dengan menu Stok (+ riwayat mutasi).
+      // Gagal mengisi stok tidak menggagalkan produk — bisa disetel di menu Stok.
+      const stokAwal = rows
+        .map((r, i) => ({ satuanKode: satuanKodes[i], qty: Number(r.stok.trim()) || 0 }))
+        .filter((s) => s.qty > 0);
+      if (stokAwal.length) {
+        try {
+          await updateStok(skuFinal, { catatan: "Stok awal produk baru (form pembelian)", satuan: stokAwal });
+        } catch {
+          // Produk tetap tersimpan; stok menyusul dari pembelian / menu Stok.
+        }
+      }
 
       // Ambil DTO produknya supaya bisa langsung dipakai jadi item pembelian.
       // Gagal memuat ≠ gagal membuat: produknya sudah tersimpan di master.
@@ -250,7 +269,7 @@ function NewProdukPanel({
       </div>
 
       <div className="mt-4 mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs" style={{ color: '#000000' }}>Satuan, kode item &amp; harga jual *</span>
+        <span className="text-xs" style={{ color: '#000000' }}>Satuan, kode item, harga jual &amp; stok awal *</span>
         <span className="text-xs" style={{ color: '#1a0408', opacity: 0.6 }}>Kode item dipakai sebagai barcode — harus unik</span>
       </div>
 
@@ -292,6 +311,10 @@ function NewProdukPanel({
                 onWheel={(e) => e.currentTarget.blur()}
                 aria-label={`Harga jual baris ${idx + 1}`}
                 placeholder="Harga jual" className={`${fieldClass} text-right`} style={inputStyle} />
+              <input type="number" min={0} value={row.stok} onChange={(e) => updateRow(idx, { stok: e.target.value })}
+                onWheel={(e) => e.currentTarget.blur()}
+                aria-label={`Stok awal baris ${idx + 1}`}
+                placeholder="Stok awal" className={`${fieldClass} text-right`} style={inputStyle} />
             </div>
           </div>
         ))}
@@ -385,11 +408,8 @@ interface DraftItem {
   diskon: number;
   satuanOptions: Array<{ produkSatuanId: number; satuanNama: string; harga: number }>;
   produkSatuanId: number | null;
-  /** Pecahan/repack: 1 kemasan beli dipecah jadi beberapa satuan jual. Kosong = tanpa pecahan. */
-  pecahan: DraftPecahan[];
-  /** Toggle repack (desain V3.1) + target jumlah hasil repack. */
+  /** Toggle repack (desain V3.1) — repack cukup menambah bahan, tanpa pecahan. */
   isRepack: boolean;
-  jumlahRepack: number;
   /** Bahan kebutuhan repack: menambah biaya item & mengurangi laba (tidak masuk stok). */
   bahan: DraftBahan[];
 }
@@ -402,92 +422,7 @@ interface DraftBahan {
 
 const emptyBahan = (): DraftBahan => ({ namaBarang: "", biaya: 0 });
 
-/** Satu baris pecahan (satuan jual hasil repack) pada satu item pembelian. */
-interface DraftPecahan {
-  produkSatuanId: number | null;
-  qty: number;
-  /** Gramasi/isi (mis. 250/500/750) — dasar alokasi harga beli. */
-  isiBase: number | null;
-  /** HPP per unit pecahan; null = ikut alokasi otomatis proporsional. */
-  hargaBeliAlokasi: number | null;
-  /** true bila harga beli alokasi diisi manual → tidak ditimpa alokasi otomatis. */
-  manual: boolean;
-  /** true = baris ini sedang membuat satuan master baru (form kecil inline). */
-  satuanBaru: boolean;
-  satuanNamaBaru: string;
-  jumlahUnitBaru: string;
-}
-
-const emptyPecahan = (): DraftPecahan =>
-  ({ produkSatuanId: null, qty: 1, isiBase: null, hargaBeliAlokasi: null, manual: false, satuanBaru: false, satuanNamaBaru: "", jumlahUnitBaru: "" });
-
 const round2 = (n: number) => Math.round(n * 100) / 100;
-
-/**
- * Cermin klien dari hitungAlokasi() pembelian-service supaya indikator
- * "total alokasi vs harga beli item" sama dengan hasil server:
- * baris manual dipakai apa adanya, sisanya proporsional `(isiBase || 1) × qty`,
- * dan tanpa baris manual total dibuat persis = harga beli item (selisih
- * pembulatan dibebankan ke baris terbesar).
- */
-function hitungAlokasiPecahan(totalBeli: number, rows: DraftPecahan[]) {
-  const isManual = (r: DraftPecahan) => r.manual && r.hargaBeliAlokasi !== null;
-  const weights = rows.map((r) => (r.isiBase && r.isiBase > 0 ? r.isiBase : 1) * Math.max(0, r.qty));
-  const hasil = rows.map((r) => {
-    const manualHarga = r.manual ? r.hargaBeliAlokasi : null;
-    if (manualHarga === null) return { hargaBeliAlokasi: 0, subtotalAlokasi: 0 };
-    const harga = round2(Math.max(0, manualHarga));
-    return { hargaBeliAlokasi: harga, subtotalAlokasi: round2(harga * r.qty) };
-  });
-
-  const idxAuto = rows.map((_, i) => i).filter((i) => !isManual(rows[i]));
-  const manualTotal = hasil.reduce((sum, h, i) => sum + (isManual(rows[i]) ? h.subtotalAlokasi : 0), 0);
-  const sisa = Math.max(0, round2(totalBeli - manualTotal));
-  const totalWeight = idxAuto.reduce((sum, i) => sum + weights[i], 0);
-  if (!idxAuto.length || totalWeight <= 0) return hasil;
-
-  for (const i of idxAuto) {
-    const subtotal = round2((sisa * weights[i]) / totalWeight);
-    hasil[i] = { subtotalAlokasi: subtotal, hargaBeliAlokasi: rows[i].qty > 0 ? round2(subtotal / rows[i].qty) : 0 };
-  }
-  if (!rows.some(isManual)) {
-    const selisih = round2(totalBeli - hasil.reduce((sum, h) => sum + h.subtotalAlokasi, 0));
-    if (selisih !== 0) {
-      const iTerbesar = idxAuto.reduce((a, b) => (hasil[a].subtotalAlokasi >= hasil[b].subtotalAlokasi ? a : b), idxAuto[0]);
-      const subtotal = round2(hasil[iTerbesar].subtotalAlokasi + selisih);
-      hasil[iTerbesar] = { subtotalAlokasi: subtotal, hargaBeliAlokasi: rows[iTerbesar].qty > 0 ? round2(subtotal / rows[iTerbesar].qty) : 0 };
-    }
-  }
-  return hasil;
-}
-
-/** Baris pecahan → payload API. null = baris belum lengkap (ditolak validasi submit). */
-function pecahanPayload(row: DraftPecahan): CreatePembelianPecahanInput | null {
-  if (!row.produkSatuanId) return null;
-  return {
-    produkSatuanId: row.produkSatuanId,
-    qty: row.qty,
-    isiBase: row.isiBase,
-    // null = server mengalokasi proporsional (isiBase x qty) dari harga beli item.
-    hargaBeliAlokasi: row.manual ? row.hargaBeliAlokasi : null,
-  };
-}
-
-/**
- * Kode item untuk baris `produk_satuan` baru: `<SKU>-<SATUAN>` (huruf besar,
- * karakter tak sah jadi "-"), maks 64 karakter (pola server), dan dijamin
- * tidak bentrok dengan kode item produk yang sudah ada.
- */
-function kodeItemBaru(sku: string, satuanKode: string, satuanNama: string, dipakai: Set<string>): string {
-  const bersih = (s: string) => s.trim().toUpperCase().replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  const dasar = (`${bersih(sku)}-${bersih(satuanNama) || bersih(satuanKode)}` || bersih(satuanKode)).slice(0, 60);
-  let kode = dasar;
-  for (let n = 2; dipakai.has(kode); n++) {
-    const suffix = `-${n}`;
-    kode = `${dasar.slice(0, 64 - suffix.length)}${suffix}`;
-  }
-  return kode;
-}
 
 function CreatePembelianModal({ onClose, onCreated, suppliers }: {
   onClose: () => void;
@@ -499,11 +434,6 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
   const [ppn, setPpn] = useState("0");
   const [catatan, setCatatan] = useState("");
   const [items, setItems] = useState<DraftItem[]>([]);
-  /** Item yang panel pecahan-nya terbuka (maksimal satu). */
-  const [openPecahanIdx, setOpenPecahanIdx] = useState<number | null>(null);
-  /** Baris pecahan yang sedang menyimpan satuan baru — key `${itemIdx}:${pecahanIdx}`. */
-  const [satuanSavingKey, setSatuanSavingKey] = useState<string | null>(null);
-  const [satuanBaruError, setSatuanBaruError] = useState<{ key: string; text: string } | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [results, setResults] = useState<ProdukDTO[]>([]);
   const [showResults, setShowResults] = useState(false);
@@ -546,24 +476,23 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 
   // Satu-satunya tempat ProdukDTO → item pembelian, dipakai hasil pencarian
   // maupun produk yang baru dibuat dari panel "Produk Baru".
-  // defaultKodeItem: satuan yang jadi pilihan default (baris satuan pertama
-  // produk baru). true = item bertambah.
-  const addProduk = (p: ProdukDTO, defaultKodeItem?: string, bahanAwal: DraftBahan[] = []): boolean => {
-    if (items.some((i) => i.sku === p.sku)) { setError("Produk sudah ditambahkan."); return false; }
+  // Semua opsi satuan produk otomatis jadi baris beli (qty 0 = belum dipilih,
+  // dilewati saat simpan) — kecuali produk satu-satuan yang langsung qty 1.
+  const addProduk = (p: ProdukDTO, _defaultKodeItem?: string, bahanAwal: DraftBahan[] = []): boolean => {
     const satuanOptions = p.satuan.map((s) => ({ produkSatuanId: s.id, satuanNama: s.satuanNama, harga: s.harga }));
-    const defaultRow = (defaultKodeItem ? p.satuan.find((s) => s.kodeItem === defaultKodeItem) : undefined) ?? p.satuan[0];
-    const def = defaultRow ? { produkSatuanId: defaultRow.id, satuanNama: defaultRow.satuanNama, harga: defaultRow.harga } : null;
-    const item: DraftItem = {
-      produkId: p.id, sku: p.sku, nama: p.nama, qty: 1,
-      hargaBeli: 0, hargaJual: def ? def.harga : 0, diskon: 0,
-      satuanOptions: satuanOptions.length ? satuanOptions : [{ produkSatuanId: 0, satuanNama: "(tanpa satuan)", harga: 0 }],
-      produkSatuanId: def ? def.produkSatuanId : null,
-      pecahan: [],
-      isRepack: bahanAwal.length > 0,
-      jumlahRepack: 0,
-      bahan: bahanAwal.map((b) => ({ ...b })),
-    };
-    setItems((prev) => (prev.some((i) => i.sku === p.sku) ? prev : [...prev, item]));
+    const sudahAda = new Set(items.map((i) => i.produkSatuanId));
+    const baru = satuanOptions.filter((o) => !sudahAda.has(o.produkSatuanId));
+    if (!baru.length) { setError("Semua satuan produk sudah ditambahkan."); return false; }
+    const qtyAwal = satuanOptions.length === 1 ? 1 : 0;
+    const rows: DraftItem[] = baru.map((o) => ({
+      produkId: p.id, sku: p.sku, nama: p.nama,
+      qty: qtyAwal, hargaBeli: 0, hargaJual: o.harga, diskon: 0,
+      satuanOptions, produkSatuanId: o.produkSatuanId,
+      isRepack: false, bahan: [],
+    }));
+    // Bahan repack awal (dari panel Produk Baru) menempel di baris pertama.
+    if (bahanAwal.length && rows.length) { rows[0].isRepack = true; rows[0].bahan = bahanAwal.map((b) => ({ ...b })); }
+    setItems((prev) => [...prev, ...rows.filter((r) => !prev.some((i) => i.produkSatuanId === r.produkSatuanId))]);
     setSearchQ(""); setShowResults(false); setError(""); setNotice(null);
     return true;
   };
@@ -612,27 +541,11 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
   };
   const removeItem = (idx: number) => {
     setItems((prev) => prev.filter((_, i) => i !== idx));
-    setOpenPecahanIdx((cur) => (cur === null ? null : cur === idx ? null : cur > idx ? cur - 1 : cur));
   };
 
-  // --- Pecahan/repack: satu panel terbuka, alokasi otomatis dihitung saat render ---
-  const togglePecahanPanel = (idx: number) => setOpenPecahanIdx((cur) => (cur === idx ? null : idx));
-  const addPecahan = (itemIdx: number) => {
-    setItems((prev) => prev.map((it, i) => (i === itemIdx ? { ...it, pecahan: [...it.pecahan, emptyPecahan()] } : it)));
-  };
-  const updatePecahan = (itemIdx: number, pIdx: number, patch: Partial<DraftPecahan>) => {
-    setItems((prev) => prev.map((it, i) =>
-      (i === itemIdx ? { ...it, pecahan: it.pecahan.map((p, j) => (j === pIdx ? { ...p, ...patch } : p)) } : it)));
-  };
-  const removePecahan = (itemIdx: number, pIdx: number) => {
-    setItems((prev) => prev.map((it, i) =>
-      (i === itemIdx ? { ...it, pecahan: it.pecahan.filter((_, j) => j !== pIdx) } : it)));
-  };
-
-  // --- Repack (desain V3.1): toggle + jumlah repack + bahan kebutuhan ---
+  // --- Repack (desain V3.1): toggle + bahan kebutuhan (tanpa pecahan) ---
   const toggleRepack = (idx: number) => {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, isRepack: !it.isRepack } : it)));
-    setOpenPecahanIdx((cur) => (cur === idx ? cur : idx));
   };
   const addBahan = (itemIdx: number) => {
     setItems((prev) => prev.map((it, i) => (i === itemIdx ? { ...it, bahan: [...it.bahan, emptyBahan()] } : it)));
@@ -646,78 +559,19 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
       (i === itemIdx ? { ...it, bahan: it.bahan.filter((_, j) => j !== bIdx) } : it)));
   };
 
-  /**
-   * "Simpan Satuan" di panel pecahan: buat satuan master (createSatuan), lalu
-   * tambahkan baris `produk_satuan` untuk SKU item ini lewat update produk
-   * (server menyinkronkan daftar satuan: satuan lama dipertahankan id-nya,
-   * satuan baru di-INSERT bersama baris stok qty 0). Kode item baru
-   * `<SKU>-<SATUAN>`, harga jual default 0.
-   */
-  const simpanSatuanPecahan = async (itemIdx: number, pIdx: number) => {
-    const item = items[itemIdx];
-    const row = item?.pecahan[pIdx];
-    if (!item || !row) return;
-    const key = `${itemIdx}:${pIdx}`;
-    if (!item.sku) { setSatuanBaruError({ key, text: "SKU item tidak dikenal — buat satuannya lewat menu Produk." }); return; }
-    const nama = row.satuanNamaBaru.trim();
-    if (!nama) { setSatuanBaruError({ key, text: "Nama satuan baru wajib diisi." }); return; }
-    const unitRaw = row.jumlahUnitBaru.trim();
-    const jumlahUnit = unitRaw === "" ? 1 : Number(unitRaw);
-    if (!Number.isInteger(jumlahUnit) || jumlahUnit < 1) { setSatuanBaruError({ key, text: "Jumlah unit minimal 1 (angka bulat)." }); return; }
-    setSatuanBaruError(null);
-    setSatuanSavingKey(key);
-    try {
-      const satuanBaru = await createSatuan({ nama, jumlahUnit });
-      const hasil = await listProduk({ search: item.sku, pageSize: 10 });
-      const produk = hasil.items.find((p) => p.sku === item.sku) ?? null;
-      if (!produk) throw new Error(`Produk ${item.sku} tidak ditemukan di master produk.`);
-      const kodeItem = kodeItemBaru(item.sku, satuanBaru.kode, satuanBaru.nama, new Set(produk.satuan.map((s) => s.kodeItem)));
-      const updated = await updateProduk(item.sku, {
-        satuan: [
-          ...produk.satuan.map((s) => ({ satuanKode: s.satuanKode, kodeItem: s.kodeItem, harga: s.harga })),
-          { satuanKode: satuanBaru.kode, kodeItem, harga: 0 },
-        ],
-      });
-      const buatan = updated.satuan.find((s) => s.satuanKode === satuanBaru.kode) ?? null;
-      if (!buatan) throw new Error("Satuan baru belum terbaca dari master produk.");
-      setItems((prev) => prev.map((it, i) => {
-        if (i !== itemIdx) return it;
-        return {
-          ...it,
-          satuanOptions: it.satuanOptions.some((o) => o.produkSatuanId === buatan.id)
-            ? it.satuanOptions
-            : [...it.satuanOptions, { produkSatuanId: buatan.id, satuanNama: buatan.satuanNama, harga: buatan.harga }],
-          pecahan: it.pecahan.map((p, j) => (j === pIdx
-            ? { ...p, produkSatuanId: buatan.id, satuanBaru: false, satuanNamaBaru: "", jumlahUnitBaru: "", manual: false, hargaBeliAlokasi: null }
-            : p)),
-        };
-      }));
-    } catch (err) {
-      setSatuanBaruError({ key, text: apiErrorText(err, "Gagal membuat satuan baru.") });
-    } finally { setSatuanSavingKey(null); }
-  };
-
   const submit = async () => {
     setError("");
     if (!supplierId) { setError("Pilih supplier terlebih dahulu."); return; }
-    if (!items.length) { setError("Minimal 1 produk harus ditambahkan."); return; }
-    for (const it of items) {
-      if (!it.qty || it.qty <= 0) { setError(`Qty untuk ${it.nama} harus > 0.`); return; }
+    // Baris dengan qty 0 = belum dipilih dan dilewati.
+    const dibeli = items.filter((it) => it.qty > 0);
+    if (!dibeli.length) { setError("Minimal 1 produk harus ditambahkan."); return; }
+    for (const it of dibeli) {
       if (!it.produkSatuanId) { setError(`Pilih satuan produk untuk ${it.nama}.`); return; }
       if (it.hargaBeli < 0 || !Number.isFinite(it.hargaBeli)) { setError(`Harga beli ${it.nama} tidak valid.`); return; }
-      // Pecahan/repack: tiap baris wajib ada satuan + qty >= 1, satuan tidak boleh dobel.
-      const satuanPecahan = new Set<number>();
-      for (const p of it.pecahan) {
-        if (p.satuanBaru && !p.produkSatuanId) { setError(`Pecahan ${it.nama}: klik "Simpan Satuan" dulu untuk satuan baru.`); return; }
-        if (!p.produkSatuanId) { setError(`Pecahan ${it.nama}: pilih satuan untuk setiap baris pecahan.`); return; }
-        if (!Number.isInteger(p.qty) || p.qty < 1) { setError(`Pecahan ${it.nama}: qty pecahan minimal 1.`); return; }
-        if (p.isiBase !== null && (!Number.isFinite(p.isiBase) || p.isiBase < 0)) { setError(`Pecahan ${it.nama}: isi (gram) tidak boleh negatif.`); return; }
-        if (p.manual && p.hargaBeliAlokasi !== null && (!Number.isFinite(p.hargaBeliAlokasi) || p.hargaBeliAlokasi < 0)) {
-          setError(`Pecahan ${it.nama}: harga beli alokasi tidak boleh negatif.`); return;
-        }
-        if (satuanPecahan.has(p.produkSatuanId)) { setError(`Pecahan ${it.nama}: satu satuan tidak boleh dipakai dua kali.`); return; }
-        satuanPecahan.add(p.produkSatuanId);
-      }
+      // Anti-rugi (desain V3.1): harga jual harus lebih tinggi dari harga beli.
+      // Hanya baris yang dibeli (qty > 0) yang divalidasi — baris satuan yang tidak
+      // dibeli (qty 0) tidak ikut pembelian dan boleh bernilai 0.
+      if (!(it.hargaJual > it.hargaBeli)) { setError(`Harga Jual untuk ${it.nama} harus lebih tinggi dari Harga Beli.`); return; }
       // Bahan repack: nama wajib, biaya tidak negatif (menambah biaya pembelian).
       for (const b of it.bahan) {
         if (!b.namaBarang.trim()) { setError(`Bahan repack ${it.nama}: nama barang wajib diisi.`); return; }
@@ -731,11 +585,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
         supplierId: Number(supplierId),
         ppn: Number(ppn) || 0,
         catatan: catatan || null,
-        items: items.map((it) => {
-          // Hanya item berpecahan yang mengirim `pecahan`; item biasa tetap seperti semula.
-          const pecahan = it.pecahan
-            .map(pecahanPayload)
-            .filter((p): p is CreatePembelianPecahanInput => p !== null);
+        items: dibeli.map((it) => {
           const bahan = it.bahan
             .filter((b) => b.namaBarang.trim())
             .map((b) => ({ namaBarang: b.namaBarang.trim(), biaya: Number(b.biaya) || 0 }));
@@ -743,9 +593,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
             produkId: it.produkId, produkSatuanId: it.produkSatuanId, sku: it.sku, namaProduk: it.nama,
             qty: it.qty, hargaBeli: it.hargaBeli, hargaJual: it.hargaJual, diskon: it.diskon,
             isRepack: it.isRepack || bahan.length > 0,
-            jumlahRepack: it.jumlahRepack,
             ...(bahan.length ? { bahan } : {}),
-            ...(pecahan.length ? { pecahan } : {}),
           };
         }),
       });
@@ -829,8 +677,8 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 
             {/* Cari produk (master) + quick-create produk baru */}
             <div>
-              <div className="flex items-center justify-between gap-3 mb-1">
-                <span className="text-sm" style={{ color: '#000000' }}>Tambah Produk</span>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <label className="block" style={{ color: '#000000' }}>Tambah Produk</label>
                 <button type="button" onClick={toggleNewProduk}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-sm transition-colors hover:bg-green-50"
                   style={{ borderColor: '#27b446', color: '#27b446' }}>
@@ -877,6 +725,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 
             {/* Panel produk baru (inline, tanpa keluar form) */}
             {showNewProduk && (
+              <div className="mt-4">
               <NewProdukPanel
                 satuanList={satuanList}
                 merkList={merkList}
@@ -889,6 +738,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                 onProductCreated={handleProdukBaruDone}
                 onBatal={() => setShowNewProduk(false)}
               />
+              </div>
             )}
 
             </div>
@@ -938,88 +788,53 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
 
             {/* Items */}
             <div>
-              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Produk Dipilih ({items.length})</span>
+              <label className="block mb-2" style={{ color: '#000000' }}>Produk Dipilih ({items.length})</label>
               {items.length === 0 ? (
                 <div className="p-6 text-center rounded-lg border border-dashed" style={{ borderColor: '#d1d5db' }}>
                   <p className="text-sm" style={{ color: '#1a0408', opacity: 0.5 }}>Belum ada produk. Cari & tambahkan produk di atas.</p>
                 </div>
               ) : (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="border border-gray-200 rounded-lg overflow-hidden max-h-[700px] overflow-y-auto">
                   <table className="w-full">
                     <thead style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                       <tr>
-                        <th className="px-4 py-2 text-left text-xs" style={{ color: '#1a0408' }}>Produk</th>
-                        <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Qty</th>
-                        <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Harga Beli</th>
-                        <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Harga Jual</th>
-                        <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Diskon %</th>
-                        <th className="px-4 py-2 text-right text-xs" style={{ color: '#1a0408' }}>Subtotal</th>
-                        <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>
+                        <th className="px-4 py-3 text-left" style={{ color: '#000000' }}>Produk</th>
+                        <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Qty</th>
+                        <th className="px-4 py-3 text-right" style={{ color: '#000000' }}>Harga Beli</th>
+                        <th className="px-4 py-3 text-right" style={{ color: '#000000' }}>Harga Jual</th>
+                        <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Diskon (%)</th>
+                        <th className="px-4 py-3 text-right" style={{ color: '#000000' }}>Subtotal</th>
+                        <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>
                           <span className="inline-flex items-center gap-1 justify-center" title="Aktifkan jika produk ini direpack jadi satuan lebih kecil. Bahan repack tidak masuk stok tetapi masuk perhitungan rugi laba.">
                             Repack <Info className="w-3 h-3" />
                           </span>
                         </th>
-                        <th className="px-4 py-2 text-center text-xs" style={{ color: '#1a0408' }}>Aksi</th>
+                        <th className="px-4 py-3 text-center" style={{ color: '#000000' }}>Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((it, idx) => {
                         const subtotal = Math.round(it.hargaBeli * it.qty * (1 - it.diskon / 100) * 100) / 100;
-                        // Biaya bahan repack ikut jadi dasar alokasi HPP (pola server).
+                        // Biaya bahan repack menambah biaya pembelian item (pola server).
                         const biayaBahan = round2(it.bahan.reduce((sum, b) => sum + (b.biaya || 0), 0));
-                        const dasarAlokasi = round2(subtotal + biayaBahan);
-                        // Alokasi otomatis dihitung saat render → ikut berubah saat isi/qty/harga beli/diskon/bahan berubah.
-                        const alokasi = it.pecahan.length ? hitungAlokasiPecahan(dasarAlokasi, it.pecahan) : [];
-                        const totalAlokasi = round2(alokasi.reduce((sum, a) => sum + a.subtotalAlokasi, 0));
-                        const sisaAlokasi = round2(dasarAlokasi - totalAlokasi);
-                        const alokasiPas = sisaAlokasi === 0;
-                        const satuanBeli = it.satuanOptions.find((o) => o.produkSatuanId === it.produkSatuanId);
-                        // Laba baris pecahan = (harga jual satuan − HPP hasil alokasi) x qty.
-                        // null = harga jual satuan tak diketahui (mis. satuan baru default 0 / tanpa opsi).
-                        const labaPecahan = it.pecahan.map((p, pi) => {
-                          const opt = p.produkSatuanId ? it.satuanOptions.find((o) => o.produkSatuanId === p.produkSatuanId) : undefined;
-                          if (!opt) return null;
-                          const a = alokasi[pi];
-                          const unit = p.manual && p.hargaBeliAlokasi !== null ? p.hargaBeliAlokasi : (a ? a.hargaBeliAlokasi : 0);
-                          return round2((opt.harga - unit) * (p.qty || 0));
-                        });
-                        const totalLabaPecahan = round2(labaPecahan.reduce<number>((sum, v) => sum + (v ?? 0), 0));
+                        const satuanNama = it.satuanOptions.find((o) => o.produkSatuanId === it.produkSatuanId)?.satuanNama ?? "-";
                         return (
-                          <Fragment key={it.sku}>
+                          <Fragment key={`${it.sku}-${it.produkSatuanId}`}>
                             <tr className="border-b border-gray-100 last:border-0">
                               <td className="px-4 py-2 min-w-[180px]">
                                 <p style={{ color: '#1a0408' }}>{it.nama}</p>
                                 <p className="text-xs font-mono mb-1" style={{ color: '#27b446' }}>{it.sku}</p>
-                                {it.satuanOptions.length > 1 ? (
-                                  <select
-                                    value={String(it.produkSatuanId ?? "")}
-                                    onChange={(e) => {
-                                      const psId = Number(e.target.value);
-                                      const opt = it.satuanOptions.find((o) => o.produkSatuanId === psId);
-                                      updateItem(idx, { produkSatuanId: psId, hargaJual: opt ? opt.harga : it.hargaJual });
-                                    }}
-                                    className="w-full px-2 py-1 rounded border border-gray-300 text-xs focus:outline-none focus:ring-2" style={inputStyle}
-                                  >
-                                    {it.satuanOptions.map((o) => <option key={o.produkSatuanId} value={o.produkSatuanId}>{o.satuanNama}</option>)}
-                                  </select>
-                                ) : (
-                                  <span className="inline-flex px-2 py-0.5 rounded text-xs" style={{ backgroundColor: '#f3f4f6', color: '#1a0408' }}>
-                                    {it.satuanOptions[0]?.satuanNama ?? "-"}
-                                  </span>
-                                )}
-                                {it.pecahan.length > 0 && (
-                                  <p className="text-xs mt-1 flex items-center gap-1" style={{ color: '#27b446' }}>
-                                    <Layers className="w-3 h-3" /> Stok masuk ke satuan pecahan
-                                  </p>
-                                )}
+                                <span className="inline-flex px-2 py-0.5 rounded text-xs" style={{ backgroundColor: '#f3f4f6', color: '#1a0408' }}>
+                                  {satuanNama}
+                                </span>
                               </td>
                               <td className="px-4 py-2">
                                 <div className="flex items-center justify-center gap-1">
-                                  <button type="button" onClick={() => updateItem(idx, { qty: Math.max(1, it.qty - 1) })}
+                                  <button type="button" onClick={() => updateItem(idx, { qty: Math.max(0, it.qty - 1) })}
                                     className="w-7 h-7 rounded border flex items-center justify-center" style={{ borderColor: '#e5e7eb', color: '#1a0408' }}>
                                     <Minus className="w-3.5 h-3.5" />
                                   </button>
-                                  <input type="number" value={it.qty} min={1} onChange={(e) => updateItem(idx, { qty: Math.max(1, Number(e.target.value) || 1) })}
+                                  <input type="number" value={it.qty} min={0} onChange={(e) => updateItem(idx, { qty: Math.max(0, Number(e.target.value) || 0) })}
                                     onWheel={(e) => e.currentTarget.blur()}
                                     className="w-12 text-center rounded border border-gray-300 py-1 focus:outline-none focus:ring-2" style={inputStyle} />
                                   <button type="button" onClick={() => updateItem(idx, { qty: it.qty + 1 })}
@@ -1027,6 +842,9 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                     <Plus className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
+                                {it.qty === 0 && (
+                                  <p className="text-[10px] text-center mt-0.5" style={{ color: '#1a0408', opacity: 0.5 }}>qty 0 = tidak dibeli</p>
+                                )}
                               </td>
                               <td className="px-4 py-2">
                                 <input type="number" value={it.hargaBeli || ""} onChange={(e) => updateItem(idx, { hargaBeli: Number(e.target.value) })}
@@ -1047,20 +865,11 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                 {formatRp(subtotal)}
                               </td>
                               <td className="px-4 py-2 text-center">
-                                <div className="flex flex-col items-center gap-1">
-                                  <button type="button" onClick={() => toggleRepack(idx)}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${it.isRepack ? 'bg-[#27b446]' : 'bg-gray-300'}`}
-                                    aria-label={`Toggle repack ${it.nama}`}>
-                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${it.isRepack ? 'translate-x-5' : 'translate-x-1'}`} />
-                                  </button>
-                                  <button type="button" onClick={() => togglePecahanPanel(idx)}
-                                    className="inline-flex items-center gap-1 text-xs transition-opacity hover:opacity-70"
-                                    style={{ color: '#27b446' }}
-                                    title="Buka panel repack: jumlah repack, bahan kebutuhan, dan satuan jual hasil">
-                                    <Split className="w-3 h-3" />
-                                    {it.pecahan.length > 0 ? `${it.pecahan.length} satuan` : "Detail"}
-                                  </button>
-                                </div>
+                                <button type="button" onClick={() => toggleRepack(idx)}
+                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${it.isRepack ? 'bg-[#27b446]' : 'bg-gray-300'}`}
+                                  aria-label={`Toggle repack ${it.nama}`}>
+                                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${it.isRepack ? 'translate-x-5' : 'translate-x-1'}`} />
+                                </button>
                               </td>
                               <td className="px-4 py-2 text-center">
                                 <button type="button" onClick={() => removeItem(idx)} className="p-1.5 rounded-lg border" style={{ borderColor: '#e40b18', color: '#e40b18' }}>
@@ -1068,41 +877,26 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                 </button>
                               </td>
                             </tr>
-                            {openPecahanIdx === idx && (
+                            {it.isRepack && (
                               <tr style={{ backgroundColor: 'rgba(39, 180, 70, 0.04)' }}>
                                 <td colSpan={8} className="px-4 py-3">
-                                  <div className="flex items-start justify-between gap-3 mb-2">
+                                  <div className="flex items-center justify-between gap-3 mb-2">
                                     <div className="flex items-center gap-2">
                                       <Split className="w-4 h-4" style={{ color: '#27b446' }} />
-                                      <span className="text-xs" style={{ color: '#27b446', letterSpacing: '0.08em' }}>PECAH / REPACK</span>
+                                      <span className="text-xs" style={{ color: '#27b446', letterSpacing: '0.08em' }}>BAHAN KEBUTUHAN REPACK</span>
                                       <span className="text-xs" style={{ color: '#1a0408', opacity: 0.6 }}>
-                                        1 {satuanBeli?.satuanNama ?? it.satuanOptions[0]?.satuanNama ?? "satuan beli"} x {it.qty} → beberapa satuan jual
+                                        {it.nama} · {satuanNama} — biaya bahan menambah biaya pembelian item (tidak masuk stok)
                                       </span>
                                     </div>
-                                    <span className="text-xs text-right" style={{ color: '#1a0408', opacity: 0.6 }}>
-                                      Harga beli + bahan dibagi proporsional isi x qty
-                                    </span>
+                                    <button type="button" onClick={() => addBahan(idx)}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs transition-opacity hover:opacity-90"
+                                      style={{ backgroundColor: '#27b446' }}>
+                                      <Plus className="w-3.5 h-3.5" /> Tambah Bahan
+                                    </button>
                                   </div>
 
-                                  {/* Jumlah Repack + Bahan Kebutuhan Repack (desain V3.1) */}
-                                  <div className="mb-3 p-3 rounded-lg border border-gray-200 bg-white">
-                                    <div className="flex flex-wrap items-end gap-4 mb-3">
-                                      <div>
-                                        <label className="block mb-1 text-xs" style={{ color: '#000000' }}>Jumlah Repack</label>
-                                        <input type="number" min={0} value={it.jumlahRepack || ""} placeholder="0"
-                                          onWheel={(e) => e.currentTarget.blur()}
-                                          onChange={(e) => updateItem(idx, { jumlahRepack: Math.max(0, Number(e.target.value) || 0) })}
-                                          className="w-40 px-3 py-1.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2" style={inputStyle} />
-                                      </div>
-                                      <div>
-                                        <label className="block mb-1 text-xs" style={{ color: '#000000' }}>Bahan Kebutuhan Repack</label>
-                                        <button type="button" onClick={() => addBahan(idx)}
-                                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs transition-opacity hover:opacity-90"
-                                          style={{ backgroundColor: '#27b446' }}>
-                                          <Plus className="w-3.5 h-3.5" /> Tambah Bahan
-                                        </button>
-                                      </div>
-                                    </div>
+                                  {/* Bahan Kebutuhan Repack (desain V3.1) */}
+                                  <div className="p-3 rounded-lg border border-gray-200 bg-white">
                                     {it.bahan.length === 0 ? (
                                       <p className="text-xs" style={{ color: '#1a0408', opacity: 0.6 }}>
                                         Belum ada bahan. Biaya bahan menambah biaya pembelian item (tidak masuk stok) dan mengurangi laba.
@@ -1133,184 +927,6 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
                                       </div>
                                     )}
                                   </div>
-
-                                  <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-medium" style={{ color: '#27b446' }}>SATUAN JUAL HASIL REPACK</span>
-                                    <span className="text-xs" style={{ color: '#1a0408', opacity: 0.6 }}>Stok masuk ke satuan hasil</span>
-                                  </div>
-
-                                  {it.pecahan.length === 0 ? (
-                                    <p className="text-xs mb-2" style={{ color: '#1a0408', opacity: 0.6 }}>
-                                      Belum ada pecahan. Selama kosong, stok masuk ke satuan beli seperti biasa.
-                                    </p>
-                                  ) : (
-                                    <table className="w-full mb-2">
-                                      <thead>
-                                        <tr>
-                                          <th className="px-2 py-1 text-left text-xs" style={{ color: '#1a0408' }}>Satuan</th>
-                                          <th className="px-2 py-1 text-center text-xs w-[90px]" style={{ color: '#1a0408' }}>Qty</th>
-                                          <th className="px-2 py-1 text-center text-xs w-[120px]" style={{ color: '#1a0408' }}>Isi (gram)</th>
-                                          <th className="px-2 py-1 text-right text-xs w-[170px]" style={{ color: '#1a0408' }}>Harga Beli / unit</th>
-                                          <th className="px-2 py-1 text-right text-xs w-[120px]" style={{ color: '#1a0408' }}>Laba</th>
-                                          <th className="px-2 py-1 w-[40px]"></th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {it.pecahan.map((p, pi) => {
-                                          const auto = alokasi[pi];
-                                          const nilaiAlokasi = p.manual && p.hargaBeliAlokasi !== null
-                                            ? p.hargaBeliAlokasi
-                                            : (auto ? auto.hargaBeliAlokasi || "" : "");
-                                          const laba = labaPecahan[pi];
-                                          // Opsi satuan baris ini — dipakai menampilkan harga jual di kolom Laba.
-                                          const opt = p.produkSatuanId
-                                            ? it.satuanOptions.find((o) => o.produkSatuanId === p.produkSatuanId)
-                                            : undefined;
-                                          return (
-                                            <Fragment key={pi}>
-                                            <tr className="border-t border-gray-200">
-                                              <td className="px-2 py-1.5">
-                                                <select value={p.satuanBaru ? NEW_REF_VALUE : p.produkSatuanId === null ? "" : String(p.produkSatuanId)}
-                                                  onChange={(e) => {
-                                                    const v = e.target.value;
-                                                    // Sentinels "+ Satuan baru…": buka form kecil pembuat satuan di bawah baris ini.
-                                                    if (v === NEW_REF_VALUE) {
-                                                      updatePecahan(idx, pi, { satuanBaru: true, produkSatuanId: null, manual: false, hargaBeliAlokasi: null });
-                                                      return;
-                                                    }
-                                                    setSatuanBaruError(null);
-                                                    updatePecahan(idx, pi, { satuanBaru: false, produkSatuanId: v ? Number(v) : null });
-                                                  }}
-                                                  aria-label={`Satuan pecahan ${pi + 1} ${it.nama}`}
-                                                  className="w-full px-2 py-1 rounded border border-gray-300 bg-white text-xs focus:outline-none focus:ring-2 cursor-pointer" style={inputStyle}>
-                                                  <option value="">-- Pilih Satuan --</option>
-                                                  {it.satuanOptions.map((o) => <option key={o.produkSatuanId} value={o.produkSatuanId}>{o.satuanNama}</option>)}
-                                                  <option value={NEW_REF_VALUE}>+ Satuan baru…</option>
-                                                </select>
-                                              </td>
-                                              <td className="px-2 py-1.5">
-                                                <input type="number" min={1} value={p.qty || ""}
-                                                  onChange={(e) => updatePecahan(idx, pi, { qty: Number(e.target.value) })}
-                                                  onWheel={(e) => e.currentTarget.blur()}
-                                                  aria-label={`Qty pecahan ${pi + 1} ${it.nama}`}
-                                                  className="w-full text-center rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
-                                              </td>
-                                              <td className="px-2 py-1.5">
-                                                <input type="number" min={0} value={p.isiBase ?? ""} placeholder="mis. 250"
-                                                  onChange={(e) => updatePecahan(idx, pi, { isiBase: e.target.value === "" ? null : Number(e.target.value) })}
-                                                  onWheel={(e) => e.currentTarget.blur()}
-                                                  aria-label={`Isi gram pecahan ${pi + 1} ${it.nama}`}
-                                                  className="w-full text-center rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
-                                              </td>
-                                              <td className="px-2 py-1.5">
-                                                <div className="flex items-center justify-end gap-1">
-                                                  {!p.manual && (
-                                                    <span className="text-xs px-1 py-0.5 rounded" title="Alokasi otomatis proporsional isi x qty"
-                                                      style={{ backgroundColor: 'rgba(39, 180, 70, 0.12)', color: '#27b446' }}>auto</span>
-                                                  )}
-                                                  <input type="number" min={0} value={nilaiAlokasi}
-                                                    onWheel={(e) => e.currentTarget.blur()}
-                                                    onChange={(e) => {
-                                                      const v = e.target.value;
-                                                      // Kosong = kembali ke alokasi otomatis.
-                                                      updatePecahan(idx, pi, { manual: v !== "", hargaBeliAlokasi: v === "" ? null : Number(v) });
-                                                    }}
-                                                    aria-label={`Harga beli alokasi pecahan ${pi + 1} ${it.nama}`}
-                                                    title="Kosongkan untuk kembali ke alokasi otomatis"
-                                                    className="w-[110px] text-right rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
-                                                </div>
-                                              </td>
-                                              <td className="px-2 py-1.5 text-right text-xs"
-                                                style={{ color: laba === null ? '#1a0408' : laba < 0 ? '#e40b18' : '#27b446', opacity: laba === null ? 0.55 : 1 }}>
-                                                {laba === null ? "—" : formatRp(laba)}
-                                                {opt && (
-                                                  <span className="block text-[10px]" style={{ color: '#1a0408', opacity: 0.55 }}>
-                                                    jual {formatRp(opt.harga)}
-                                                  </span>
-                                                )}
-                                              </td>
-                                              <td className="px-2 py-1.5 text-center">
-                                                <button type="button" onClick={() => removePecahan(idx, pi)} title="Hapus baris pecahan"
-                                                  className="p-1 rounded transition-colors hover:bg-gray-100" style={{ color: '#e40b18' }}>
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                              </td>
-                                            </tr>
-                                            {p.satuanBaru && (
-                                              <tr style={{ backgroundColor: 'rgba(245, 158, 11, 0.08)' }}>
-                                                <td colSpan={6} className="px-2 py-2">
-                                                  <div className="flex flex-wrap items-end gap-2">
-                                                    <label>
-                                                      <span className="block mb-1 text-[10px]" style={{ color: '#1a0408', opacity: 0.6 }}>NAMA SATUAN BARU *</span>
-                                                      <input value={p.satuanNamaBaru}
-                                                        onChange={(e) => updatePecahan(idx, pi, { satuanNamaBaru: e.target.value })}
-                                                        aria-label={`Nama satuan baru pecahan ${pi + 1} ${it.nama}`}
-                                                        placeholder="mis. Pack 250g"
-                                                        className="w-[180px] rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
-                                                    </label>
-                                                    <label>
-                                                      <span className="block mb-1 text-[10px]" style={{ color: '#1a0408', opacity: 0.6 }}>JUMLAH UNIT</span>
-                                                      <input type="number" min={1} value={p.jumlahUnitBaru}
-                                                        onChange={(e) => updatePecahan(idx, pi, { jumlahUnitBaru: e.target.value })}
-                                                        onWheel={(e) => e.currentTarget.blur()}
-                                                        aria-label={`Jumlah unit satuan baru pecahan ${pi + 1} ${it.nama}`}
-                                                        placeholder="1"
-                                                        className="w-[90px] text-center rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2" style={inputStyle} />
-                                                    </label>
-                                                    <button type="button" onClick={() => void simpanSatuanPecahan(idx, pi)}
-                                                      disabled={satuanSavingKey === `${idx}:${pi}`}
-                                                      className="px-3 py-1.5 rounded-lg text-xs text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                                                      style={{ backgroundColor: '#27b446' }}>
-                                                      {satuanSavingKey === `${idx}:${pi}` ? "Menyimpan..." : "Simpan Satuan"}
-                                                    </button>
-                                                    <button type="button"
-                                                      onClick={() => { setSatuanBaruError(null); updatePecahan(idx, pi, { satuanBaru: false, satuanNamaBaru: "", jumlahUnitBaru: "" }); }}
-                                                      className="px-3 py-1.5 rounded-lg border text-xs transition-colors hover:bg-red-50"
-                                                      style={{ borderColor: '#e40b18', color: '#e40b18' }}>Batal</button>
-                                                    <span className="text-[10px] flex-1 min-w-[220px]" style={{ color: '#1a0408', opacity: 0.6 }}>
-                                                      Satuan master + baris produk_satuan SKU ini dibuat otomatis (kode item {"<SKU>-<SATUAN>"}, harga jual 0).
-                                                    </span>
-                                                  </div>
-                                                  {satuanBaruError?.key === `${idx}:${pi}` && (
-                                                    <p className="text-xs mt-1.5" style={{ color: '#e40b18' }}>⚠ {satuanBaruError.text}</p>
-                                                  )}
-                                                </td>
-                                              </tr>
-                                            )}
-                                            </Fragment>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  )}
-
-                                  <button type="button" onClick={() => addPecahan(idx)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed text-xs transition-colors hover:bg-white"
-                                    style={{ borderColor: 'rgba(39, 180, 70, 0.5)', color: '#27b446' }}>
-                                    <Plus className="w-3.5 h-3.5" /> Tambah Pecahan
-                                  </button>
-
-                                  {it.pecahan.length > 0 && (
-                                    <div className="mt-3 p-3 rounded-lg border"
-                                      style={{ borderColor: alokasiPas ? '#27b446' : '#f59e0b', backgroundColor: alokasiPas ? 'rgba(39, 180, 70, 0.06)' : 'rgba(245, 158, 11, 0.08)' }}>
-                                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                                        <span style={{ color: '#1a0408' }}>Total alokasi: <strong>{formatRp(totalAlokasi)}</strong></span>
-                                        <span style={{ color: '#1a0408', opacity: 0.7 }}>
-                                          Biaya item: beli {formatRp(subtotal)} + bahan {formatRp(biayaBahan)} = <strong>{formatRp(dasarAlokasi)}</strong>
-                                        </span>
-                                        <span style={{ color: alokasiPas ? '#27b446' : '#b45309', fontWeight: 500 }}>
-                                          {alokasiPas ? "Alokasi pas" : sisaAlokasi > 0 ? `Sisa: ${formatRp(sisaAlokasi)}` : `Lebih: ${formatRp(Math.abs(sisaAlokasi))}`}
-                                        </span>
-                                        <span style={{ color: '#27b446', fontWeight: 500 }}>
-                                          Laba pecahan: {formatRp(totalLabaPecahan)}
-                                          {labaPecahan.some((v) => v === null) ? " (sebagian —)" : ""}
-                                        </span>
-                                      </div>
-                                      <p className="text-xs mt-1" style={{ color: '#1a0408', opacity: 0.7 }}>
-                                        Stok masuk ke satuan pecahan — satuan beli ({satuanBeli?.satuanNama ?? "-"}) tidak dipakai untuk stok.
-                                      </p>
-                                    </div>
-                                  )}
                                 </td>
                               </tr>
                             )}
@@ -1527,32 +1143,20 @@ function DetailModal({ data, onClose, onDelete }: { data: PembelianDTO; onClose:
 }
 
 /**
- * Parse kolom bulk opsional `Pecahan` — `Satuan:Qty:Isi` dipisah `;`
- * (mis. `Pcs:20:250;Pcs:10:500`) menjadi payload pecahan API. `Isi` boleh
- * dikosongkan. Mengembalikan pesan error (menyebut satuan bermasalah) atau
- * "" bila semua baris valid.
+ * Parse kolom bulk opsional `Bahan Repack` — `Nama Barang:Biaya` dipisah `;`
+ * (mis. `Plastik:500;Lakban:250`) menjadi daftar bahan repack item (biaya,
+ * tidak masuk stok). Mengembalikan pesan error atau "" bila semua baris valid.
  */
-function parsePecahanBulk(
-  raw: string,
-  satuanProduk: ProdukDTO["satuan"],
-  keluar: CreatePembelianPecahanInput[],
-): string {
+function parseBahanBulk(raw: string, keluar: DraftBahan[]): string {
   const bagian = raw.split(";").map((x) => x.trim()).filter(Boolean);
-  const dipakai = new Set<number>();
   for (const bag of bagian) {
     const kolom = bag.split(":").map((x) => x.trim());
-    if (kolom.length < 2 || kolom.length > 3) return `format pecahan "${bag}" salah (harus Satuan:Qty:Isi)`;
-    const [namaSatuan, qtyTeks, isiTeks] = kolom;
-    const opt = satuanProduk.find((s) => s.satuanNama.trim().toLowerCase() === namaSatuan.toLowerCase());
-    if (!opt) return `satuan pecahan "${namaSatuan}" tidak dikenal`;
-    const pQty = Number(qtyTeks);
-    if (!Number.isInteger(pQty) || pQty <= 0) return `qty pecahan "${namaSatuan}" harus angka bulat > 0`;
-    const isiBase = isiTeks === undefined || isiTeks === "" ? null : Number(isiTeks);
-    if (isiBase !== null && (!Number.isFinite(isiBase) || isiBase < 0)) return `isi pecahan "${namaSatuan}" harus angka >= 0`;
-    if (dipakai.has(opt.id)) return `satuan pecahan "${namaSatuan}" dipakai dua kali`;
-    dipakai.add(opt.id);
-    // Harga beli alokasi sengaja kosong → server mengalokasi proporsional isi x qty.
-    keluar.push({ produkSatuanId: opt.id, qty: pQty, isiBase });
+    if (kolom.length !== 2) return `format bahan "${bag}" salah (harus Nama Barang:Biaya)`;
+    const [namaBarang, biayaTeks] = kolom;
+    if (!namaBarang) return "nama barang bahan tidak boleh kosong";
+    const biaya = Number(biayaTeks);
+    if (!Number.isFinite(biaya) || biaya < 0) return `biaya bahan "${namaBarang}" harus angka >= 0`;
+    keluar.push({ namaBarang, biaya });
   }
   return "";
 }
@@ -1663,7 +1267,7 @@ export default function Pembelian() {
         produkCache.set(key, found);
         return found;
       };
-      const grouped = new Map<number, { tanggal: string; supplierId: number; firstRow: number; rows: Array<{ sku: string; nama: string; produkId: number | null; produkSatuanId: number | null; pecahan: CreatePembelianPecahanInput[]; qty: number; hargaBeli: number; hargaJual: number; diskon: number }> }>();
+      const grouped = new Map<number, { tanggal: string; supplierId: number; firstRow: number; rows: Array<{ sku: string; nama: string; produkId: number | null; produkSatuanId: number | null; bahan: DraftBahan[]; qty: number; hargaBeli: number; hargaJual: number; diskon: number }> }>();
       const failures: BulkUploadFailure[] = [];
 
       for (let idx = 0; idx < rows.length - 1; idx++) {
@@ -1675,36 +1279,35 @@ export default function Pembelian() {
         const sku = value(row, "sku", "kode produk");
         const nama = value(row, "nama produk", "nama", "produk");
         const satuanNama = value(row, "satuan").trim();
-        const pecahanRaw = value(row, "pecahan").trim();
+        const bahanRaw = value(row, "bahan repack", "bahan").trim();
         const qty = Number(value(row, "qty", "jumlah")) || 0;
         const hargaBeli = Number(value(row, "harga beli", "harga_beli")) || 0;
         const hargaJual = Number(value(row, "harga jual", "harga_jual")) || 0;
         const diskon = Number(value(row, "diskon")) || 0;
         if (!sku || !nama || qty <= 0) { failures.push({ row: idx + 2, message: "data produk/qty tidak valid" }); continue; }
-        // Kolom Satuan opsional: bila diisi, stok masuk ke satuan itu (bukan satuan
-        // pertama produk). Bila kosong → perilaku lama (server memakai satuan pertama).
-        // Kolom Pecahan opsional: `Satuan:Qty:Isi` dipisah `;` → repack, stok masuk
-        // ke satuan-satuan pecahan.
+        // Anti-rugi (desain V3.1): harga jual wajib lebih tinggi dari harga beli.
+        if (!(hargaJual > hargaBeli)) { failures.push({ row: idx + 2, message: `harga jual harus lebih tinggi dari harga beli (SKU ${sku})` }); continue; }
+        // Kolom Satuan: memilih satuan beli (multi-satuan = beberapa baris SKU sama).
+        // Kolom Bahan Repack opsional: `Nama Barang:Biaya` dipisah `;` → biaya repack
+        // item (tidak masuk stok) dan menandai item sebagai repack.
         let produkId: number | null = null;
         let produkSatuanId: number | null = null;
-        const pecahan: CreatePembelianPecahanInput[] = [];
-        if (satuanNama || pecahanRaw) {
+        const bahan: DraftBahan[] = [];
+        if (satuanNama) {
           const produk = await findProduk(sku);
           if (!produk) { failures.push({ row: idx + 2, message: `SKU ${sku} tidak ditemukan di produk master` }); continue; }
           produkId = produk.id;
-          if (satuanNama) {
-            const opt = produk.satuan.find((s) => s.satuanNama.trim().toLowerCase() === satuanNama.toLowerCase());
-            if (!opt) { failures.push({ row: idx + 2, message: `satuan "${satuanNama}" tidak dikenal untuk SKU ${sku}` }); continue; }
-            produkSatuanId = opt.id;
-          }
-          if (pecahanRaw) {
-            const pesan = parsePecahanBulk(pecahanRaw, produk.satuan, pecahan);
-            if (pesan) { failures.push({ row: idx + 2, message: `${pesan} (SKU ${sku})` }); continue; }
-          }
+          const opt = produk.satuan.find((s) => s.satuanNama.trim().toLowerCase() === satuanNama.toLowerCase());
+          if (!opt) { failures.push({ row: idx + 2, message: `satuan "${satuanNama}" tidak dikenal untuk SKU ${sku}` }); continue; }
+          produkSatuanId = opt.id;
+        }
+        if (bahanRaw) {
+          const pesan = parseBahanBulk(bahanRaw, bahan);
+          if (pesan) { failures.push({ row: idx + 2, message: `${pesan} (SKU ${sku})` }); continue; }
         }
         const g = grouped.get(supplierId) ?? { tanggal, supplierId, firstRow: idx + 2, rows: [] };
         if (!grouped.has(supplierId)) { g.tanggal = tanggal; grouped.set(supplierId, g); }
-        g.rows.push({ sku, nama, produkId, produkSatuanId, pecahan, qty, hargaBeli, hargaJual, diskon });
+        g.rows.push({ sku, nama, produkId, produkSatuanId, bahan, qty, hargaBeli, hargaJual, diskon });
       }
       let success = 0;
       for (const [supplierId, g] of grouped) {
@@ -1714,7 +1317,8 @@ export default function Pembelian() {
             items: g.rows.map((r) => ({
               produkId: r.produkId, produkSatuanId: r.produkSatuanId, sku: r.sku, namaProduk: r.nama,
               qty: r.qty, hargaBeli: r.hargaBeli, hargaJual: r.hargaJual, diskon: r.diskon,
-              ...(r.pecahan.length ? { pecahan: r.pecahan } : {}),
+              isRepack: r.bahan.length > 0,
+              ...(r.bahan.length ? { bahan: r.bahan } : {}),
             })),
           });
           success++;
@@ -1969,13 +1573,13 @@ export default function Pembelian() {
         <BulkUploadModal
           title="Upload Pembelian Bulk"
           resultLabel="pembelian"
-          columns={["Supplier", "Tanggal", "SKU", "Nama Produk", "Satuan", "Pecahan", "Qty", "Harga Beli", "Harga Jual", "Diskon"]}
-          formatNote="Supplier bisa kode (SUP-001) atau nama. Tanggal format YYYY-MM-DD (opsional, default hari ini). Satuan (opsional) = nama satuan produk yang terdaftar di master produk (mis. Dus, Pcs); bila kosong sistem memakai satuan pertama produk. Pecahan (opsional) = daftar repack format Satuan:Qty:Isi dipisah ';' (mis. Pcs:20:250;Pcs:10:500) — satuan pecahan harus terdaftar di produk SKU tersebut, Qty angka bulat > 0, Isi = gramasi/isi (opsional); harga beli dialokasikan otomatis proporsional isi x qty. Qty minimal 1. Diskon per item (opsional, default 0). Setiap baris = satu item; baris dengan supplier sama digabung jadi satu pembelian."
+          columns={["Supplier", "Tanggal", "SKU", "Nama Produk", "Satuan", "Qty", "Harga Beli", "Harga Jual", "Diskon", "Bahan Repack"]}
+          formatNote="Supplier bisa kode (SUP-001) atau nama. Tanggal format YYYY-MM-DD (opsional, default hari ini). Satuan (opsional) = nama satuan beli yang terdaftar di master produk (mis. Dus, Pcs); bila kosong sistem memakai satuan pertama produk. Membeli beberapa satuan dari satu produk: tulis beberapa baris dengan SKU sama. Bahan Repack (opsional) = daftar bahan format Nama Barang:Biaya dipisah ';' (mis. Plastik:500;Lakban:250) — biaya bahan menambah biaya item (tidak masuk stok) dan menandai item sebagai repack. Qty minimal 1. Harga Jual wajib lebih tinggi dari Harga Beli (anti-rugi; baris yang melanggar dihitung gagal). Diskon per item (opsional, default 0). Setiap baris = satu item; baris dengan supplier sama digabung jadi satu pembelian."
           sample={{
-            headers: ["Supplier", "Tanggal", "SKU", "Nama Produk", "Satuan", "Pecahan", "Qty", "Harga Beli", "Harga Jual", "Diskon"],
+            headers: ["Supplier", "Tanggal", "SKU", "Nama Produk", "Satuan", "Qty", "Harga Beli", "Harga Jual", "Diskon", "Bahan Repack"],
             rows: [
-              ["SUP-001", "2026-09-27", "IND-001", "Indomie", "Dus", "", "24", "19500", "24000", "0"],
-              ["SUP-001", "2026-09-27", "IND-001", "Indomie", "Dus", "Pcs:20:85;Pack:12:100", "12", "19500", "24000", "0"],
+              ["SUP-001", "2026-09-27", "IND-001", "Indomie", "Dus", "24", "19500", "24000", "0", ""],
+              ["SUP-001", "2026-09-27", "IND-001", "Indomie", "Pcs", "20", "950", "1200", "0", "Plastik:500"],
             ],
           }}
           sampleFilename="sample-pembelian.csv"

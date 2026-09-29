@@ -17,7 +17,7 @@ import type { SupplierDTO } from "@/lib/supplier-types";
 import type { ProdukDTO } from "@/lib/product-types";
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown,
-  X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2, Eye,
+  X, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus, Trash2,
   Download, Upload, Building2, Calendar, Undo2, AlertCircle
 } from "lucide-react";
 import { format } from "date-fns";
@@ -922,12 +922,6 @@ export default function Konsinyasi() {
                                   Pengembalian
                                 </button>
                               )}
-                              <button onClick={() => setViewing(k)}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-colors hover:opacity-80"
-                                style={{ borderColor: '#27b446', color: '#27b446' }}>
-                                <Eye className="w-4 h-4" />
-                                Detail
-                              </button>
                             </div>
                           </td>
                         </tr>
