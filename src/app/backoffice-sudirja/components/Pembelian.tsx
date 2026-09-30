@@ -1205,7 +1205,7 @@ export default function Pembelian() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    listSupplier({ pageSize: 500 }).then((r) => setSuppliers(r.items)).catch(() => undefined);
+    listSupplier({ pageSize: 500 }).then((r) => setSuppliers(r.items.filter((s) => s.isActive))).catch(() => undefined);
   }, []);
 
   const handleSort = (field: SortField) => {

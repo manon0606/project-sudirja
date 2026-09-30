@@ -25,6 +25,7 @@ interface PesananRow2 extends RowDataPacket {
   cash_in: string | number | null;
   cash_out: string | number | null;
   status: string;
+  nilai_retur: string | number;
 }
 
 interface PembelianRow2 extends RowDataPacket {
@@ -112,17 +113,22 @@ function resolveRange(params: ReturnType<typeof parseLaporanParams>, now = new D
   return { from, to, fromStr: fmtDt(from), toStr: fmtDt(to) };
 }
 
-/** Ambil pesanan (penjualan + cash) pada rentang — kecuali dibatalkan/dikembalikan. */
+/** Ambil pesanan (penjualan + cash) pada rentang — kecuali dibatalkan.
+ *  Pesanan berstatus 'Dikembalikan' TETAP dihitung: nilai retur dipotong dari
+ *  totalnya (retur semua → sisa 0), sesuai keputusan laporan = nilai bersih. */
 async function queryPesanan(from: string, to: string): Promise<PesananRow2[]> {
   const { rows } = await query<PesananRow2[]>(
     `SELECT p.no_pesanan, p.created_at, p.asal_pesanan, p.kasir_nama,
             pg.nama AS nama_pelanggan,
             p.metode_bayar, p.subtotal, p.diskon_amount, p.total,
-            p.cash_in, p.cash_out, p.status
+            p.cash_in, p.cash_out, p.status,
+            (SELECT COALESCE(SUM(ri.subtotal),0) FROM retur_pesanan rp
+               JOIN retur_item ri ON ri.retur_id = rp.id
+              WHERE rp.pesanan_id = p.id) AS nilai_retur
      FROM pesanan p
      LEFT JOIN pelanggan pg ON pg.id = p.pelanggan_id
      WHERE p.created_at >= ? AND p.created_at <= ?
-       AND p.status NOT IN ('Dibatalkan', 'Dikembalikan')
+       AND p.status <> 'Dibatalkan'
      ORDER BY p.created_at ASC`,
     [from, to],
   );
@@ -188,7 +194,8 @@ export async function generateLaporan(params: ReturnType<typeof parseLaporanPara
     metodeBayar: p.metode_bayar,
     subtotal: Number(p.subtotal),
     diskon: Number(p.diskon_amount),
-    total: Number(p.total),
+    // Retur memotong nilai penjualan (retur semua = 0). Pesanan Dibatalkan/Dikembalikan sudah dikecualikan query.
+    total: Number(p.total) - Number(p.nilai_retur ?? 0),
   }));
 
   // Rincian pembelian.
@@ -231,8 +238,8 @@ export async function generateLaporan(params: ReturnType<typeof parseLaporanPara
   cashFlow.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
 
   // Summary.
-  const totalOffline = pesananRows.filter((p) => p.asal_pesanan === "offline").reduce((s, p) => s + Number(p.total), 0);
-  const totalOnline = pesananRows.filter((p) => p.asal_pesanan === "commerce").reduce((s, p) => s + Number(p.total), 0);
+  const totalOffline = penjualan.filter((p) => p.asal === "offline").reduce((s, p) => s + p.total, 0);
+  const totalOnline = penjualan.filter((p) => p.asal === "commerce").reduce((s, p) => s + p.total, 0);
   const totalCashIn = pesananRows.reduce((s, p) => s + (p.cash_in == null ? 0 : Number(p.cash_in)), 0);
   const totalPembelian = pembelian.reduce((s, pb) => s + pb.grandTotal, 0);
   const totalKonsinyasiDibayar = konsinyasi.reduce((s, k) => s + k.totalDibayar, 0);

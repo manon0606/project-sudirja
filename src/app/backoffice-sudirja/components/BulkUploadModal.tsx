@@ -81,6 +81,10 @@ export default function BulkUploadModal({
 
   const handleUpload = async () => {
     if (!selectedFile || processing) return;
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError("Ukuran file melebihi 10MB. Kurangi baris atau pecah menjadi beberapa file.");
+      return;
+    }
     setProcessing(true);
     setError("");
     setResult(null);

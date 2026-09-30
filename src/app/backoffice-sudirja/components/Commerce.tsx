@@ -46,54 +46,52 @@ function getPaymentBadge(method: string) {
 // Pilih Kurir Modal
 // ---------------------------------------------------------------------------
 
-function PilihKurirModal({ onClose, onAssign, kurirs, busy }: {
+function PilihKurirModal({ onClose, onAssign, kurirs, busy, order }: {
   onClose: () => void;
   onAssign: (kurirId: number) => void;
   kurirs: KurirDTO[];
   busy: boolean;
+  /** Pesanan tunggal (dari detail) — null berarti mode bulk dari checkbox grid. */
+  order: PesananDTO | null;
 }) {
   const [selected, setSelected] = useState("");
   return (
     <Modal onClose={onClose} className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
-            <h2 style={{ color: '#000000' }}>Pilih Kurir</h2>
-            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>Pilih kurir untuk memproses pengiriman</p>
+            <h2 style={{ color: '#000000' }}>{order ? "Pilih Kurir" : "Pilih Kurir (Bulk)"}</h2>
+            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>{order ? "Pilih kurir untuk memproses pengiriman" : "Tugaskan kurir untuk pesanan terpilih"}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
             <X className="w-5 h-5" />
           </button>
         </div>
         <div className="px-6 py-4">
+          {order && (
+            <div className="mb-4 p-3 rounded-lg" style={{ backgroundColor: 'rgba(39, 180, 70, 0.05)' }}>
+              <p className="text-sm" style={{ color: '#1a0408', opacity: 0.7 }}>ID Pesanan</p>
+              <p style={{ color: '#27b446', fontFamily: 'monospace' }}>{order.noPesanan}</p>
+            </div>
+          )}
+          <label className="block mb-2 text-sm" style={{ color: '#1a0408', opacity: 0.7 }}>Pilih Kurir</label>
           {kurirs.length === 0 ? (
             <p className="text-center py-6" style={{ color: '#1a0408', opacity: 0.6 }}>
               Belum ada user dengan role kurir. Buat di menu User → Role & Akses.
             </p>
           ) : (
-            <div className="space-y-2">
-              {kurirs.map((k) => (
-                <button
-                  key={k.id}
-                  onClick={() => setSelected(String(k.id))}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors"
-                  style={{
-                    borderColor: selected === String(k.id) ? '#27b446' : '#e5e7eb',
-                    backgroundColor: selected === String(k.id) ? 'rgba(39, 180, 70, 0.04)' : 'white'
-                  }}
-                >
-                  <span className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold"
-                    style={{ backgroundColor: '#27b446' }}>
-                    {k.fullName.charAt(0)}
-                  </span>
-                  <div className="flex-1 text-left">
-                    <p style={{ color: '#000000' }}>{k.fullName}</p>
-                    <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>
-                      @{k.username}{k.phone ? ` · ${k.phone}` : ""}
-                    </p>
-                  </div>
-                  {selected === String(k.id) && <CheckCircle className="w-5 h-5" style={{ color: '#27b446' }} />}
-                </button>
-              ))}
+            <div className="relative">
+              <select
+                value={selected}
+                onChange={(e) => setSelected(e.target.value)}
+                className="w-full appearance-none px-4 py-3 pr-10 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 cursor-pointer"
+                style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
+              >
+                <option value="">-- Pilih Kurir --</option>
+                {kurirs.map((k) => (
+                  <option key={k.id} value={String(k.id)}>{k.fullName} ({k.id})</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" style={{ color: '#1a0408', opacity: 0.6 }} />
             </div>
           )}
         </div>
@@ -656,14 +654,6 @@ export default function Commerce() {
                             </td>
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-1.5">
-                                {order.statusPengiriman === "Menunggu Kurir" && (
-                                  <button onClick={() => { setOrderForCourier(order); setShowCourierModal(true); }}
-                                    className="p-2 rounded-lg border transition-colors hover:bg-gray-50"
-                                    style={{ borderColor: '#27b446', color: '#27b446' }}
-                                    title="Pilih kurir">
-                                    <Truck className="w-4 h-4" />
-                                  </button>
-                                )}
                                 {order.statusPengiriman === "Diantar" && (
                                   <button onClick={() => void handleComplete(order)} disabled={busy}
                                     className="p-2 rounded-lg border transition-colors hover:bg-gray-50 disabled:opacity-50"
@@ -790,6 +780,7 @@ export default function Commerce() {
         <PilihKurirModal
           kurirs={kurirs}
           busy={busy}
+          order={orderForCourier}
           onClose={() => { setShowCourierModal(false); setOrderForCourier(null); }}
           onAssign={(kurirId) => void handleAssignKurir(kurirId)}
         />

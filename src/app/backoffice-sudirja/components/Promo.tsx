@@ -1169,6 +1169,10 @@ function BulkUploadPromoModal({ onClose, onDone }: BulkUploadPromoModalProps) {
 
   const handleUpload = async () => {
     if (!selectedFile || processing) return;
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError("Ukuran file melebihi 10MB. Kurangi baris atau pecah menjadi beberapa file.");
+      return;
+    }
     setProcessing(true);
     setError("");
     setResult(null);
@@ -1276,7 +1280,7 @@ function BulkUploadPromoModal({ onClose, onDone }: BulkUploadPromoModalProps) {
               <div className="mt-2 max-h-40 overflow-y-auto">
                 {result.failures.map((f, i) => (
                   <p key={i} className="text-sm mt-1" style={{ color: '#991b1b' }}>
-                    Baris {f.row}{f.kode ? ` (${f.kode})` : ""}: {f.message}
+                    Baris {f.row + 1}{f.kode ? ` (${f.kode})` : ""}: {f.message}
                   </p>
                 ))}
               </div>

@@ -30,7 +30,7 @@ function formatRp(n: number) {
 
 interface OngkirFormProps {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   value: CreateOngkirInput;
   onChange: (v: CreateOngkirInput) => void;
   onSubmit: () => void;
@@ -51,53 +51,59 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 style={{ color: '#000000' }}>{title}</h2>
-            <p className="text-sm" style={{ color: '#1a0408', opacity: 0.6 }}>{subtitle}</p>
+            {subtitle && <p className="text-sm mt-0.5" style={{ color: '#27b446' }}>{subtitle}</p>}
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#1a0408' }}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="overflow-y-auto max-h-[60vh] px-6 py-4">
-          {error && (
-            <div className="mb-4 px-4 py-3 rounded-lg" style={{ backgroundColor: '#fee2e2' }}>
-              <p className="text-sm" style={{ color: '#991b1b' }}>⚠ {error}</p>
+        <div className="px-6 py-4">
+          <div className="space-y-4">
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>ID <span style={{ color: '#e40b18' }}>*</span></label>
+              {kodeDisabled ? (
+                <>
+                  <div className="px-4 py-3 rounded-lg border border-gray-200" style={{ backgroundColor: '#f9fafb', color: '#1a0408', opacity: 0.7 }}>
+                    {value.kode}
+                  </div>
+                  <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>ID tidak dapat diubah</p>
+                </>
+              ) : (
+                <>
+                  <input
+                    value={value.kode}
+                    onChange={(e) => set("kode", e.target.value)}
+                    placeholder="Contoh: PM019"
+                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
+                    style={{ color: '#1a0408', textTransform: 'uppercase', '--tw-ring-color': '#27b446' } as any}
+                  />
+                  <p className="text-sm mt-1" style={{ color: '#1a0408', opacity: 0.6 }}>ID harus unik dan belum pernah digunakan</p>
+                </>
+              )}
             </div>
-          )}
-          <div className="space-y-5">
-            <label>
-              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Kode *</span>
-              <input
-                value={value.kode} disabled={kodeDisabled}
-                onChange={(e) => set("kode", e.target.value)}
-                placeholder="cth: KCM001"
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 disabled:bg-gray-50 disabled:cursor-not-allowed"
-                style={{ color: '#1a0408', fontFamily: 'monospace', '--tw-ring-color': '#27b446' } as any}
-              />
-              {kodeDisabled && <p className="text-xs mt-1" style={{ color: '#1a0408', opacity: 0.5 }}>Kode tidak dapat diubah</p>}
-            </label>
-            <label>
-              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Kecamatan *</span>
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>Kecamatan <span style={{ color: '#e40b18' }}>*</span></label>
               <input
                 value={value.kecamatan}
                 onChange={(e) => set("kecamatan", e.target.value)}
-                placeholder="cth: Bandung Wetan"
+                placeholder="Contoh: Arcamanik"
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                 style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
               />
-            </label>
-            <label>
-              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Ongkir (Rp) *</span>
+            </div>
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>Ongkir (Rp) <span style={{ color: '#e40b18' }}>*</span></label>
               <input
                 type="number" min="0" value={value.ongkir || ""}
                 onChange={(e) => set("ongkir", Number(e.target.value))}
-                placeholder="cth: 15000"
+                placeholder="Contoh: 20000"
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                 style={{ color: '#1a0408', '--tw-ring-color': '#27b446' } as any}
               />
-            </label>
-            <label>
-              <span className="block mb-2 text-sm" style={{ color: '#000000' }}>Status</span>
+            </div>
+            <div>
+              <label className="block mb-2" style={{ color: '#000000' }}>Status</label>
               <button
                 type="button"
                 onClick={() => set("isActive", !value.isActive)}
@@ -111,7 +117,12 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
                 {value.isActive ? <CheckCircle className="w-4 h-4" /> : <X className="w-4 h-4" />}
                 {value.isActive ? "Aktif" : "Nonaktif"}
               </button>
-            </label>
+            </div>
+            {error && (
+              <div className="p-3 rounded-lg" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                <p className="text-sm">⚠ {error}</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -124,7 +135,7 @@ function OngkirForm({ title, subtitle, value, onChange, onSubmit, onClose, busy,
           <button type="submit" disabled={busy}
             className="flex-1 py-3 rounded-lg text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: '#27b446' }}>
-            {busy ? "Menyimpan..." : title.startsWith("Edit") ? "Simpan Perubahan" : "Simpan Data"}
+            {busy ? "Menyimpan..." : title.startsWith("Edit") ? "Simpan Perubahan" : "Simpan"}
           </button>
         </div>
       </form>
@@ -739,7 +750,6 @@ export default function Pemetaan() {
       {showCreate && (
         <OngkirForm
           title="Tambah Data Pemetaan & Ongkir"
-          subtitle="Isi data kecamatan dan biaya ongkir"
           value={form}
           onChange={setForm}
           onSubmit={() => void saveCreate()}
@@ -752,8 +762,8 @@ export default function Pemetaan() {
       {/* Edit modal */}
       {editing && (
         <OngkirForm
-          title={`Edit Data — ${editing.kode}`}
-          subtitle="Perbarui data kecamatan dan biaya ongkir"
+          title="Edit Data Pemetaan & Ongkir"
+          subtitle={editing.kode}
           value={form}
           onChange={setForm}
           onSubmit={() => void saveEdit()}

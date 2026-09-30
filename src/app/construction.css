@@ -1,0 +1,46 @@
+/* CSS custom halaman Under Construction (dari desain: animasi + backdrop).
+   Dipisah dari Tailwind utility karena tidak didukung Tailwind v4 config-less. */
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes spin-reverse-slow {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+@keyframes float-gentle {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+}
+@keyframes progress-slide {
+  0% { width: 12%; }
+  50% { width: 68%; }
+  100% { width: 12%; }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 24s linear infinite;
+  transform-origin: center;
+}
+.animate-spin-reverse {
+  animation: spin-reverse-slow 18s linear infinite;
+  transform-origin: center;
+}
+.animate-float {
+  animation: float-gentle 4s ease-in-out infinite;
+}
+.animate-progress {
+  animation: progress-slide 5s ease-in-out infinite;
+}
+
+/* Subtle cloud backdrop */
+.bg-clouds {
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(224, 242, 254, 0.45) 0%, transparent 28%),
+    radial-gradient(circle at 85% 15%, rgba(224, 242, 254, 0.5) 0%, transparent 32%),
+    radial-gradient(circle at 50% 80%, rgba(243, 244, 246, 0.6) 0%, transparent 45%);
+}
+.construction-grid-truss {
+  stroke-dasharray: 2 1;
+}
