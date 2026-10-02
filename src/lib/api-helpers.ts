@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import type { AuthErrorCode } from "@/lib/auth-types";
 import type { ProductErrorCode } from "@/lib/product-types";
 import type { StokErrorCode } from "@/lib/stok-types";
@@ -16,9 +17,11 @@ import type { KonsinyasiErrorCode } from "@/lib/konsinyasi-types";
 import type { PembelianErrorCode } from "@/lib/pembelian-types";
 import type { LaporanErrorCode } from "@/lib/laporan-types";
 import type { DashboardErrorCode } from "@/lib/dashboard-types";
+import type { PosErrorCode } from "@/lib/pos-types";
 import { getCurrentAdmin, type CurrentAdmin } from "@/lib/auth";
+import { verifyPosApiKey } from "@/lib/settings-service";
 
-export type ApiErrorCode = AuthErrorCode | ProductErrorCode | StokErrorCode | PromoErrorCode | PesananErrorCode | UserErrorCode | KomisiErrorCode | SettingsErrorCode | OngkirErrorCode | PelangganErrorCode | SupplierErrorCode | KonsinyasiErrorCode | PembelianErrorCode | LaporanErrorCode | DashboardErrorCode;
+export type ApiErrorCode = AuthErrorCode | ProductErrorCode | StokErrorCode | PromoErrorCode | PesananErrorCode | UserErrorCode | KomisiErrorCode | SettingsErrorCode | OngkirErrorCode | PelangganErrorCode | SupplierErrorCode | KonsinyasiErrorCode | PembelianErrorCode | LaporanErrorCode | DashboardErrorCode | PosErrorCode;
 
 /** Success envelope: { ok: true, data }. */
 export function ok<T>(data: T, init?: ResponseInit): NextResponse {
@@ -46,5 +49,41 @@ export async function requireAdmin(): Promise<CurrentAdmin | null> {
     // Database unreachable or session lookup failed — treat as unauthenticated
     // at this layer; the handler logs and maps real failures to 500.
     return null;
+  }
+}
+
+/** Siapa pemanggil route: admin backoffice (cookie) atau aplikasi POS (API key). */
+export type Requester =
+  | { kind: "admin"; admin: CurrentAdmin }
+  | { kind: "pos" };
+
+/**
+ * Guard ganda untuk route yang dipakai backoffice DAN aplikasi POS.
+ * Cookie admin berlaku apa adanya; selain itu coba API key POS dari header
+ * `X-API-Key` (sah hanya saat mode online di Settings aktif).
+ */
+export async function requireAdminOrPosKey(request: Request): Promise<Requester | null> {
+  try {
+    const admin = await getCurrentAdmin();
+    if (admin) return { kind: "admin", admin };
+    const { valid } = await verifyPosApiKey(request.headers.get("x-api-key"));
+    return valid ? { kind: "pos" } : null;
+  } catch {
+    // Sama dengan requireAdmin: DB bermasalah → anggap belum terautentikasi.
+    return null;
+  }
+}
+
+/**
+ * True bila pemanggil adalah aplikasi POS dengan API key sah (header `X-API-Key`).
+ * Dipakai sebagai cadangan pada route yang guard-nya `requireAdmin()`, supaya
+ * nilai `admin` yang dipakai handler tidak berubah bentuk.
+ */
+export async function isPosRequest(): Promise<boolean> {
+  try {
+    const { valid } = await verifyPosApiKey((await headers()).get("x-api-key"));
+    return valid;
+  } catch {
+    return false;
   }
 }

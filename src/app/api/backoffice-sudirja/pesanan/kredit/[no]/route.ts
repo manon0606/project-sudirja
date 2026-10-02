@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { ok, fail, requireAdmin } from "@/lib/api-helpers";
+import { ok, fail, requireAdminOrPosKey } from "@/lib/api-helpers";
 import { getCurrentAdmin } from "@/lib/auth";
 import {
   getKreditByNo,
@@ -9,9 +9,9 @@ import {
 type Ctx = { params: Promise<{ no: string }> };
 
 /** GET /pesanan/kredit/[no] — detail pesanan kredit + riwayat angsuran. */
-export async function GET(_request: NextRequest, ctx: Ctx) {
-  const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const requester = await requireAdminOrPosKey(request);
+  if (!requester) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   const { no } = await ctx.params;
   try {
     const kredit = await getKreditByNo(no);
@@ -25,8 +25,8 @@ export async function GET(_request: NextRequest, ctx: Ctx) {
 
 /** POST /pesanan/kredit/[no] — catat pembayaran angsuran. Body: { jumlah, catatan? } */
 export async function POST(request: NextRequest, ctx: Ctx) {
-  const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  const requester = await requireAdminOrPosKey(request);
+  if (!requester) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   const { no } = await ctx.params;
 
   let body: unknown;
@@ -42,11 +42,17 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   try {
-    const current = (await getCurrentAdmin())!.admin;
-    const dicatatOleh = current.full_name || current.username;
+    const adminNow = await getCurrentAdmin();
+    const dicatatOleh = adminNow
+      ? adminNow.admin.full_name || adminNow.admin.username
+      : typeof b.dicatatOleh === "string" && b.dicatatOleh.trim()
+        ? b.dicatatOleh.trim().slice(0, 100)
+        : "POS";
     const updated = await addKreditPembayaranTx(no, {
       jumlah,
       catatan: typeof b.catatan === "string" ? b.catatan.trim() : null,
+      // Kunci idempotensi dari perangkat POS (opsional).
+      clientRef: typeof b.clientRef === "string" && b.clientRef.trim() ? b.clientRef.trim() : null,
     }, dicatatOleh);
     if (!updated) return fail(404, "NOT_FOUND", `Pesanan kredit ${no} tidak ditemukan.`);
     return ok(updated);

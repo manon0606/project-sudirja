@@ -9,11 +9,12 @@ import {
   purgeExpiredSessions,
   resolveAdminAccess,
   toProfile,
+  DUMMY_PASSWORD_HASH,
 } from "@/lib/auth";
 
-// Dummy hash of "invalid" — used to equalize timing when the username does not
-// exist, so response time does not leak which usernames are registered.
-const DUMMY_HASH = "$2a$12$C6UzMDM.H6dfI/f/IKcEe.WT8FiFbBoZg0d/8mFeXkZoERvSnPd9W";
+// Dipakai menyamakan waktu respons saat username tidak ada — lihat komentar di
+// DUMMY_PASSWORD_HASH.
+const DUMMY_HASH = DUMMY_PASSWORD_HASH;
 
 export async function POST(request: NextRequest) {
   let body: unknown;

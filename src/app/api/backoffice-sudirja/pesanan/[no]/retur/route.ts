@@ -1,13 +1,13 @@
 import type { NextRequest } from "next/server";
-import { ok, fail, requireAdmin } from "@/lib/api-helpers";
+import { ok, fail, requireAdminOrPosKey } from "@/lib/api-helpers";
 import { createReturTx } from "@/lib/pesanan-service";
 
 type Ctx = { params: Promise<{ no: string }> };
 
 /** POST /pesanan/[no]/retur — buat retur (sebagian/semua) untuk pesanan. */
 export async function POST(request: NextRequest, ctx: Ctx) {
-  const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  const requester = await requireAdminOrPosKey(request);
+  if (!requester) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   const { no } = await ctx.params;
 
   let body: unknown;
@@ -62,14 +62,17 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   try {
-    const retur = await createReturTx(no, {
+    const hasilRetur = await createReturTx(no, {
       tipe,
       alasan,
       catatan: typeof b.catatan === "string" ? b.catatan.trim() : null,
       items,
+      // Kunci idempotensi dari perangkat POS (opsional).
+      noRetur: typeof b.noRetur === "string" && b.noRetur.trim() ? b.noRetur.trim() : null,
     });
-    if (!retur) return fail(404, "NOT_FOUND", `Pesanan ${no} tidak ditemukan.`);
-    return ok(retur, { status: 201 });
+    if (!hasilRetur) return fail(404, "NOT_FOUND", `Pesanan ${no} tidak ditemukan.`);
+    // Push ulang yang sukses (noRetur sudah tercatat) → 200; retur baru → 201.
+    return ok(hasilRetur.retur, { status: hasilRetur.created ? 201 : 200 });
   } catch (error) {
     console.error("[pesanan/retur] error:", error);
     return fail(500, "INTERNAL_ERROR", "Terjadi kesalahan server. Coba lagi nanti.");

@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { ok, fail, requireAdmin } from "@/lib/api-helpers";
+import { ok, fail, requireAdmin, isPosRequest } from "@/lib/api-helpers";
 import { getPesananByNo, updatePengirimanPesanan } from "@/lib/pesanan-service";
 import type { StatusPengiriman } from "@/lib/pesanan-types";
 
@@ -10,7 +10,7 @@ const VALID_STATUS_PENGIRIMAN: StatusPengiriman[] = ["Menunggu Kurir", "Diantar"
 /** GET /pesanan/[no] — detail pesanan + items. */
 export async function GET(_request: NextRequest, ctx: Ctx) {
   const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  if (!admin && !(await isPosRequest())) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   const { no } = await ctx.params;
   try {
     const pesanan = await getPesananByNo(no);

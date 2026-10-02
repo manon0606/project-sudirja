@@ -380,7 +380,24 @@ export async function createPesananTx(
   kasir: { nama: string; username: string },
 ): Promise<PesananDTO | null> {
   const noPesanan = await withTransaction<string>(async (conn) => {
-    const generated = await generateNoPesanan();
+    // Idempotensi push offline: `noPesanan` dari perangkat yang sudah tercatat
+    // tidak boleh membuat baris / mengurangi stok kedua kali — cukup balikkan
+    // nomor yang sama supaya route mengembalikan data lama.
+    const dipakai = (input.noPesanan ?? "").trim().slice(0, 32);
+    if (dipakai) {
+      const [dup] = await conn.query<RowDataPacket[]>(
+        `SELECT no_pesanan FROM pesanan WHERE no_pesanan = ? LIMIT 1`,
+        [dipakai],
+      );
+      if ((dup as RowDataPacket[]).length > 0) return dipakai;
+    }
+    const generated = dipakai || (await generateNoPesanan());
+    // Waktu transaksi asli di perangkat (bukan waktu push) — hanya dipakai bila valid.
+    const waktuTerjadi = (() => {
+      if (!input.terjadiAt) return null;
+      const d = new Date(input.terjadiAt);
+      return Number.isNaN(d.getTime()) ? null : d;
+    })();
     const subtotal = input.items.reduce((sum, it) => sum + it.harga * it.qty, 0);
 
     // Voucher → diskon dari tabel promo (aktif, periode berlaku, kuota, minimal belanja).
@@ -453,6 +470,11 @@ export async function createPesananTx(
         null,
       ],
     );
+
+    // Waktu transaksi asli di perangkat POS (bukan waktu push).
+    if (waktuTerjadi) {
+      await conn.query(`UPDATE pesanan SET created_at = ? WHERE id = ?`, [waktuTerjadi, result.insertId]);
+    }
 
     // Tandai voucher terpakai (kuota berkurang 1).
     if (promoId != null) {
@@ -613,7 +635,7 @@ function metodeBayarTunai(metode: string): boolean {
 export async function createReturTx(
   noPesanan: string,
   input: CreateReturInput,
-): Promise<ReturDTO | null> {
+): Promise<{ retur: ReturDTO; created: boolean } | null> {
   return withTransaction(async (conn) => {
     const [pesananRows] = await conn.query<RowDataPacket[]>(
       `SELECT id FROM pesanan WHERE no_pesanan = ? LIMIT 1`,
@@ -622,7 +644,19 @@ export async function createReturTx(
     const pesananId = (pesananRows as Array<{ id: number }>)[0]?.id;
     if (!pesananId) return null;
 
-    const noRetur = await generateNoRetur();
+    const noRetur = (input.noRetur ?? "").trim().slice(0, 32) || (await generateNoRetur());
+
+    // Idempotensi push offline: `noRetur` yang sudah tercatat tidak boleh
+    // membuat retur / mengembalikan stok dua kali.
+    const [dupRows] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM retur_pesanan WHERE no_retur = ? LIMIT 1`,
+      [noRetur],
+    );
+    if ((dupRows as RowDataPacket[]).length > 0) {
+      const sudah = await bacaReturByNo(conn, noRetur);
+      return sudah ? { retur: sudah, created: false } : null;
+    }
+
     const totalRefund = input.items.reduce((sum, it) => sum + it.harga * it.qty, 0);
 
     const [result] = await conn.query<ResultSetHeader>(
@@ -669,24 +703,31 @@ export async function createReturTx(
 
     // Baca retur lengkap utk respons — pakai conn (koneksi transaksi) agar
     // membaca state yg belum commit, bukan pool lain.
-    const [returRows] = await conn.query<RowDataPacket[]>(
-      `SELECT r.id, r.no_retur, r.pesanan_id, r.tipe, r.alasan, r.catatan, r.total_refund, r.status, r.created_at,
-              p.no_pesanan
-       FROM retur_pesanan r JOIN pesanan p ON p.id = r.pesanan_id
-       WHERE r.no_retur = ? LIMIT 1`,
-      [noRetur],
-    );
-    const returRow = (returRows as RowDataPacket[])[0];
-    const [itemRows] = await conn.query<RowDataPacket[]>(
-      `SELECT id, pesanan_item_id, nama_produk, qty, harga, subtotal
-       FROM retur_item WHERE retur_id = ? ORDER BY id ASC`,
-      [result.insertId],
-    );
-    return toReturDTO(
-      returRow as never,
-      (itemRows as RowDataPacket[]).map((r) => toReturItemDTO(r as never)),
-    );
+    const dibuat = await bacaReturByNo(conn, noRetur);
+    return dibuat ? { retur: dibuat, created: true } : null;
   });
+}
+
+/** Baca 1 retur + itemnya (dipakai jalur create dan jalur idempotensi). */
+async function bacaReturByNo(conn: PoolConnection, noRetur: string): Promise<ReturDTO | null> {
+  const [returRows] = await conn.query<RowDataPacket[]>(
+    `SELECT r.id, r.no_retur, r.pesanan_id, r.tipe, r.alasan, r.catatan, r.total_refund, r.status, r.created_at,
+            p.no_pesanan
+     FROM retur_pesanan r JOIN pesanan p ON p.id = r.pesanan_id
+     WHERE r.no_retur = ? LIMIT 1`,
+    [noRetur],
+  );
+  const returRow = (returRows as RowDataPacket[])[0];
+  if (!returRow) return null;
+  const [itemRows] = await conn.query<RowDataPacket[]>(
+    `SELECT id, pesanan_item_id, nama_produk, qty, harga, subtotal
+     FROM retur_item WHERE retur_id = ? ORDER BY id ASC`,
+    [returRow.id],
+  );
+  return toReturDTO(
+    returRow as never,
+    (itemRows as RowDataPacket[]).map((r) => toReturItemDTO(r as never)),
+  );
 }
 
 /** Cari pesanan_item terkait item retur (untuk resolusi stok & konsinyasi). */
@@ -994,9 +1035,19 @@ export async function addKreditPembayaranTx(
     if (input.jumlah > sisa) {
       throw new Error(`Jumlah pembayaran melebihi sisa (${sisa}).`);
     }
+    // Idempotensi push offline: `clientRef` yang sudah tercatat tidak boleh
+    // dibukukan dua kali — cukup balikkan keadaan terakhir apa adanya.
+    const clientRef = (input.clientRef ?? "").trim().slice(0, 64) || null;
+    if (clientRef) {
+      const [dup] = await conn.query<RowDataPacket[]>(
+        `SELECT id FROM kredit_pembayaran WHERE client_ref = ? LIMIT 1`,
+        [clientRef],
+      );
+      if ((dup as RowDataPacket[]).length > 0) return true;
+    }
     await conn.query(
-      `INSERT INTO kredit_pembayaran (pesanan_id, jumlah, dicatat_oleh, catatan) VALUES (?, ?, ?, ?)`,
-      [pesanan.id, input.jumlah, dicatatOleh, input.catatan?.slice(0, 255) || null],
+      `INSERT INTO kredit_pembayaran (pesanan_id, jumlah, dicatat_oleh, catatan, client_ref) VALUES (?, ?, ?, ?, ?)`,
+      [pesanan.id, input.jumlah, dicatatOleh, input.catatan?.slice(0, 255) || null, clientRef],
     );
     // Bila angsuran ini melunasi seluruh sisa → tandai pesanan 'Selesai'.
     if (input.jumlah >= sisa) {

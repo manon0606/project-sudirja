@@ -142,6 +142,11 @@ export interface CreatePesananInput {
   /** Cash in / out opsional dari POS. */
   cashIn?: number | null;
   cashOut?: number | null;
+  // --- Tambahan aplikasi POS (opsional; tidak dikirim → perilaku lama) ---
+  /** Nomor pesanan dari perangkat POS — kunci idempotensi push offline. */
+  noPesanan?: string | null;
+  /** Waktu transaksi terjadi di perangkat (ISO-8601), bukan waktu push. */
+  terjadiAt?: string | null;
 }
 
 /** Update pengiriman commerce (assign kurir / ubah status). */
@@ -166,6 +171,8 @@ export interface CreateReturInput {
   alasan: string;
   catatan?: string | null;
   items: ReturItemInput[];
+  /** Nomor retur dari perangkat POS — kunci idempotensi push offline. */
+  noRetur?: string | null;
 }
 
 export interface ReturItemDTO {
@@ -269,6 +276,8 @@ export interface KreditListParams {
 export interface AddKreditPembayaranInput {
   jumlah: number;
   catatan?: string | null;
+  /** Ref dari perangkat POS — kunci idempotensi push offline angsuran. */
+  clientRef?: string | null;
 }
 
 // ---------------------------------------------------------------------------

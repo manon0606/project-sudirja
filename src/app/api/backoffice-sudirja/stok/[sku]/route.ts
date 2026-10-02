@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { ok, fail, requireAdmin } from "@/lib/api-helpers";
+import { ok, fail, requireAdmin, isPosRequest } from "@/lib/api-helpers";
 import { getStokBySku, updateStokBySku, StokValidationError } from "@/lib/stok-service";
 import type { StokErrorCode } from "@/lib/stok-types";
 
@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ sku: string }> };
 
 export async function GET(_request: NextRequest, ctx: Ctx) {
   const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  if (!admin && !(await isPosRequest())) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   const { sku } = await ctx.params;
   try {
     const stok = await getStokBySku(sku);

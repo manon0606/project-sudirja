@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
-import { ok, fail, requireAdmin } from "@/lib/api-helpers";
+import { ok, fail, requireAdmin, isPosRequest } from "@/lib/api-helpers";
 import { getCurrentAdmin } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { verifyPosApiKey } from "@/lib/settings-service";
+import { getPesananByNo } from "@/lib/pesanan-service";
 import type { RowDataPacket } from "mysql2/promise";
 import {
   listPesanan,
@@ -15,7 +16,7 @@ const VALID_METODE = ["Tunai", "QRIS", "Bank Transfer", "Kredit"];
 /** GET /pesanan — list pesanan (pagination, search, filter status/tanggal, sort). */
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  if (!admin && !(await isPosRequest())) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   try {
     const opts = parsePesananListParams(request.nextUrl.searchParams);
     const result = await listPesanan(opts);
@@ -34,13 +35,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const current = await requireAdmin();
   const apiKey = request.headers.get("x-api-key");
-  let posAuth: { nama: string; username: string } | null = null;
   if (!current) {
     const keyResult = await verifyPosApiKey(apiKey);
     if (!keyResult.valid) {
       return fail(401, "UNAUTHORIZED", "API key tidak valid atau mode online nonaktif.");
     }
-    posAuth = { nama: "", username: "pos" };
   }
 
   let body: unknown;
@@ -152,6 +151,12 @@ export async function POST(request: NextRequest) {
         username: typeof b.kasirUsername === "string" && b.kasirUsername.trim() ? b.kasirUsername.trim() : "pos",
       };
     }
+    // Kunci idempotensi push offline: bila `noPesanan` sudah tercatat, transaksi
+    // yang sama tidak dibuat dua kali (lihat guard di createPesananTx).
+    const noPesananPos =
+      typeof b.noPesanan === "string" && b.noPesanan.trim() ? b.noPesanan.trim().slice(0, 32) : null;
+    const sudahAda = noPesananPos ? Boolean(await getPesananByNo(noPesananPos)) : false;
+
     const created = await createPesananTx(
       {
         items,
@@ -168,10 +173,14 @@ export async function POST(request: NextRequest) {
         pelangganId: b.pelangganId !== undefined && b.pelangganId !== null && b.pelangganId !== ""
           ? Number(b.pelangganId)
           : undefined,
+        // Tambahan POS: kunci idempotensi + waktu transaksi asli di perangkat.
+        noPesanan: noPesananPos,
+        terjadiAt: typeof b.terjadiAt === "string" && b.terjadiAt.trim() ? b.terjadiAt.trim() : null,
       },
       kasir,
     );
-    return ok(created, { status: 201 });
+    // Push ulang yang sukses (nomor sudah tercatat) → 200; transaksi baru → 201.
+    return ok(created, { status: sudahAda ? 200 : 201 });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("VOUCHER_INVALID:")) {
       const message = error.message.slice("VOUCHER_INVALID:".length);

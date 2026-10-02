@@ -1,11 +1,11 @@
 import type { NextRequest } from "next/server";
-import { ok, fail, requireAdmin } from "@/lib/api-helpers";
+import { ok, fail, requireAdmin, isPosRequest } from "@/lib/api-helpers";
 import { listStok, parseStokListParams } from "@/lib/stok-service";
 
 /** GET /stok?page=&pageSize=&search=&kategoriKode=&merkKode=&status=&lowOnly=&sortBy=&sortOrder= */
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  if (!admin && !(await isPosRequest())) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   try {
     const opts = parseStokListParams(request.nextUrl.searchParams);
     const result = await listStok(opts);

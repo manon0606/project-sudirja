@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { ok, fail, requireAdmin } from "@/lib/api-helpers";
+import { ok, fail, requireAdmin, isPosRequest } from "@/lib/api-helpers";
 import {
   listProduk,
   getProdukSatuanByProdukIds,
@@ -17,7 +17,7 @@ import type { RowDataPacket } from "mysql2/promise";
 
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin();
-  if (!admin) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau sudah berakhir.");
+  if (!admin && !(await isPosRequest())) return fail(401, "UNAUTHORIZED", "Sesi tidak valid atau API key POS tidak sah.");
   try {
     const opts = parseProdukListParams(request.nextUrl.searchParams);
     const result = await listProduk(opts);

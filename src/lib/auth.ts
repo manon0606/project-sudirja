@@ -103,6 +103,12 @@ export function validateLogin(body: unknown): ValidationResult<{ username: strin
 // Password hashing
 // ---------------------------------------------------------------------------
 
+/**
+ * Hash bcrypt dummy — dipakai menyamakan waktu respons saat username tidak ada,
+ * supaya waktu respons tidak membocorkan username mana yang terdaftar.
+ */
+export const DUMMY_PASSWORD_HASH = "$2a$12$C6UzMDM.H6dfI/f/IKcEe.WT8FiFbBoZg0d/8mFeXkZoERvSnPd9W";
+
 export function hashPassword(plain: string): string {
   return bcrypt.hashSync(plain, BCRYPT_COST);
 }
