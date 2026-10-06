@@ -460,7 +460,7 @@ export default function Pemetaan() {
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
                     <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
-                      <button onClick={() => { setShowAddMenu(false); setFormError(""); setShowCreate(true); }}
+                      <button onClick={() => { setForm(emptyForm); setShowAddMenu(false); setFormError(""); setShowCreate(true); }}
                         className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
                         style={{ color: '#1a0408' }}>
                         <Edit className="w-5 h-5" style={{ color: '#27b446' }} />

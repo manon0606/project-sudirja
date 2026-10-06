@@ -77,9 +77,10 @@ function resolveRange(params: ReturnType<typeof parseLaporanParams>, now = new D
   const todayM = wibNow.getUTCMonth();
   const todayD = wibNow.getUTCDate();
   const parseYmd = (s: string): [number, number, number] => {
-    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    // Terima "YYYY-MM-DD", "YYYY-MM", atau "YYYY" (kompatibel mundur).
+    const m = s.match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?/);
     if (!m) return [todayY, todayM, todayD];
-    return [Number(m[1]), Number(m[2]) - 1, Number(m[3])];
+    return [Number(m[1]), m[2] ? Number(m[2]) - 1 : 0, m[3] ? Number(m[3]) : 1];
   };
 
   let from: Date;
@@ -260,6 +261,8 @@ export async function generateLaporan(params: ReturnType<typeof parseLaporanPara
   };
   summary.labaBersih = Math.round((summary.totalPemasukan - summary.totalPengeluaran) * 100) / 100;
 
+  const dataKosong = penjualan.length === 0 && pembelian.length === 0 && konsinyasi.length === 0;
+
   const now = new Date();
   const id = `LAP-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
 
@@ -270,6 +273,7 @@ export async function generateLaporan(params: ReturnType<typeof parseLaporanPara
     periodeMulai: from.toISOString(),
     periodeAkhir: to.toISOString(),
     summary,
+    dataKosong,
     rincian: { penjualan, pembelian, konsinyasi, cashFlow },
   };
 }

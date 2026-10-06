@@ -812,7 +812,7 @@ export default function Promo() {
                       <div className="fixed inset-0 z-10" onClick={() => setShowAddPromoMenu(false)} />
                       <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden z-20">
                         <button
-                          onClick={() => { setShowAddPromoMenu(false); setFormError(""); setShowCreate(true); }}
+                          onClick={() => { setForm(emptyForm); setShowAddPromoMenu(false); setFormError(""); setShowCreate(true); }}
                           className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
                           style={{ color: '#1a0408' }}
                         >

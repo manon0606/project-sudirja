@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import { fmtWib } from "@/lib/date-utils";
 import type {
   BulkKonsinyasiResult,
   CreateKonsinyasiInput,
@@ -61,11 +62,11 @@ export function downloadKonsinyasiCsv(items: KonsinyasiDTO[]): void {
   const body: string[] = [];
   for (const k of items) {
     if (k.items.length === 0) {
-      body.push([k.noKonsinyasi, k.tanggal, k.supplier.nama, "", "", "", "", "", "", k.status].map(esc).join(","));
+      body.push([k.noKonsinyasi, fmtWib(k.tanggal, "dd MMM yyyy, HH:mm"), k.supplier.nama, "", "", "", "", "", "", k.status].map(esc).join(","));
       continue;
     }
     for (const it of k.items) {
-      body.push([k.noKonsinyasi, k.tanggal, k.supplier.nama, it.namaProduk, it.qtyKonsinyasi, it.qtyTerjual, it.qtyDikembalikan, it.hargaBeli, it.hargaJual, k.status].map(esc).join(","));
+      body.push([k.noKonsinyasi, fmtWib(k.tanggal, "dd MMM yyyy, HH:mm"), k.supplier.nama, it.namaProduk, it.qtyKonsinyasi, it.qtyTerjual, it.qtyDikembalikan, it.hargaBeli, it.hargaJual, k.status].map(esc).join(","));
     }
   }
   const blob = new Blob(["\uFEFF", [headers.join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });

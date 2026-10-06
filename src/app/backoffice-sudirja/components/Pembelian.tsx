@@ -581,7 +581,7 @@ function CreatePembelianModal({ onClose, onCreated, suppliers }: {
     setBusy(true);
     try {
       await createPembelian({
-        tanggal: `${tanggal}T00:00:00`,
+        tanggal: `${tanggal}T${new Date().toTimeString().slice(0, 8)}`,
         supplierId: Number(supplierId),
         ppn: Number(ppn) || 0,
         catatan: catatan || null,
@@ -1313,7 +1313,7 @@ export default function Pembelian() {
       for (const [supplierId, g] of grouped) {
         try {
           await createPembelian({
-            tanggal: `${g.tanggal}T00:00:00`, supplierId, ppn: 0,
+            tanggal: `${g.tanggal}T${new Date().toTimeString().slice(0, 8)}`, supplierId, ppn: 0,
             items: g.rows.map((r) => ({
               produkId: r.produkId, produkSatuanId: r.produkSatuanId, sku: r.sku, namaProduk: r.nama,
               qty: r.qty, hargaBeli: r.hargaBeli, hargaJual: r.hargaJual, diskon: r.diskon,

@@ -49,6 +49,8 @@ interface DraftItem {
   qty: number;
   hargaBeli: number;
   hargaJual: number;
+  // true bila user sudah mengedit harga jual manual (jangan ditimpa saat ganti satuan).
+  hargaJualDiedit?: boolean;
   // Satuan produk (stok konsinyasi ditambah ke satuan ini).
   satuanOptions: Array<{ produkSatuanId: number; satuanNama: string; harga: number }>;
   produkSatuanId: number | null;
@@ -140,7 +142,7 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
     const psId = value === "" ? null : Number(value);
     const opt = items[idx].satuanOptions.find((o) => o.produkSatuanId === psId);
     setItems((prev) => prev.map((it, i) => i === idx
-      ? { ...it, produkSatuanId: psId, hargaJual: opt ? opt.harga : it.hargaJual }
+      ? { ...it, produkSatuanId: psId, hargaJual: opt && !it.hargaJualDiedit ? opt.harga : it.hargaJual }
       : it));
   };
 
@@ -174,7 +176,7 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
     setBusy(true);
     try {
       await createKonsinyasi({
-        tanggal: `${tanggal}T00:00:00`,
+        tanggal: `${tanggal}T${new Date().toTimeString().slice(0, 8)}`,
         supplierId: Number(supplierId),
         catatan: catatan || null,
         items: items.map((it) => ({
@@ -364,7 +366,7 @@ function CreateKonsinyasiModal({ onClose, onCreated, suppliers }: {
                           </td>
                           <td className="px-4 py-3">
                             <input type="number" value={it.hargaJual || ""} placeholder="0"
-                              onChange={(e) => updateItem(idx, { hargaJual: Number(e.target.value) })}
+                              onChange={(e) => updateItem(idx, { hargaJual: Number(e.target.value), hargaJualDiedit: true })}
                               className="w-full text-right px-2 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2"
                               style={inputStyle} />
                           </td>
@@ -711,7 +713,7 @@ export default function Konsinyasi() {
       for (const [supplierId, g] of grouped) {
         try {
           await createKonsinyasi({
-            tanggal: `${g.tanggal}T00:00:00`, supplierId,
+            tanggal: `${g.tanggal}T${new Date().toTimeString().slice(0, 8)}`, supplierId,
             items: g.rows.map((r) => ({ produkId: r.produkId, sku: r.sku, namaProduk: r.nama, produkSatuanId: r.produkSatuanId, qtyKonsinyasi: r.qty, hargaBeli: r.hargaBeli, hargaJual: r.hargaJual })),
           });
           success++;

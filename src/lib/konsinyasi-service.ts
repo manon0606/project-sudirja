@@ -339,6 +339,10 @@ export async function createKonsinyasi(input: CreateKonsinyasiInput): Promise<Ko
          VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
         [result.insertId, satuan.produkId, produkSatuanId, satuan.nama, it.sku, it.namaProduk, it.qtyKonsinyasi, it.hargaBeli, it.hargaJual],
       );
+      // Terapkan harga jual dari form ke harga produk (dipakai POS/menu Produk).
+      if (Number.isFinite(it.hargaJual) && it.hargaJual > 0) {
+        await conn.query(`UPDATE produk_satuan SET harga = ? WHERE id = ?`, [it.hargaJual, produkSatuanId]);
+      }
       // Tambah stok ke satuan terpilih sebesar qty konsinyasi.
       await mutasiStok(conn, produkSatuanId, it.qtyKonsinyasi, `Konsinyasi ${no} — ${it.namaProduk} (${satuan.nama})`);
     }

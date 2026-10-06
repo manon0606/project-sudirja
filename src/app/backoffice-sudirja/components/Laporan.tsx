@@ -149,9 +149,9 @@ export default function Laporan() {
     let dateFrom = selectedDate;
     let dateTo: string | undefined;
     if (reportType === "monthly") {
-      dateFrom = `${selectedYear}-${String(Number(selectedMonth) + 1).padStart(2, "0")}`;
+      dateFrom = `${selectedYear}-${String(Number(selectedMonth) + 1).padStart(2, "0")}-01`;
     } else if (reportType === "yearly") {
-      dateFrom = selectedYear;
+      dateFrom = `${selectedYear}-01-01`;
     } else if (reportType === "custom") {
       if (!customDateFrom || !customDateTo) {
         setError("Pilih rentang tanggal laporan custom terlebih dahulu.");
@@ -167,6 +167,10 @@ export default function Laporan() {
     setLoading(true);
     try {
       const result = await generateLaporan({ tipe: reportType, dateFrom, dateTo });
+      if (result.dataKosong) {
+        setError("Data tidak ditemukan untuk periode yang dipilih.");
+        return;
+      }
       const entry: HistoryEntry = {
         id: result.id,
         tipe: result.tipe,

@@ -583,7 +583,7 @@ function RoleSection() {
               </p>
             </div>
           </div>
-          <button onClick={() => { setFormError(""); setShowCreate(true); }}
+          <button onClick={() => { setNewName(""); setNewLabel(""); setNewPerms([]); setFormError(""); setShowCreate(true); }}
             className="flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: '#27b446' }}>
             <Plus className="w-5 h-5" />
@@ -1492,7 +1492,7 @@ export default function User() {
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
                       <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-20">
-                        <button onClick={() => { setShowAddMenu(false); setFormError(""); setShowCreate(true); }}
+                        <button onClick={() => { setForm(emptyForm); setShowAddMenu(false); setFormError(""); setShowCreate(true); }}
                           className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
                           style={{ color: '#1a0408' }}>
                           <Edit className="w-5 h-5" style={{ color: '#27b446' }} />

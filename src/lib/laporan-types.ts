@@ -95,6 +95,8 @@ export interface LaporanDTO {
   periodeMulai: string;
   periodeAkhir: string;
   summary: LaporanSummary;
+  /** true bila tidak ada transaksi apa pun pada periode ini. */
+  dataKosong?: boolean;
   rincian: {
     penjualan: LaporanPenjualanRow[];
     pembelian: LaporanPembelianRow[];

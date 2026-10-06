@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import { fmtWib } from "@/lib/date-utils";
 import type {
   CreatePembelianInput,
   PembelianDTO,
@@ -55,11 +56,11 @@ export function downloadPembelianCsv(items: PembelianDTO[]): void {
   const body: string[] = [];
   for (const p of items) {
     if (!p.items.length) {
-      body.push([p.noPembelian, p.tanggal, p.supplier.nama, "", "", "", "", "", "", p.ppn, p.totalPembelian, p.estimasiLaba].map(esc).join(","));
+      body.push([p.noPembelian, fmtWib(p.tanggal, "dd MMM yyyy, HH:mm"), p.supplier.nama, "", "", "", "", "", "", p.ppn, p.totalPembelian, p.estimasiLaba].map(esc).join(","));
       continue;
     }
     for (const it of p.items) {
-      body.push([p.noPembelian, p.tanggal, p.supplier.nama, it.namaProduk, it.satuanNama ?? "", it.qty, it.hargaBeli, it.diskon, it.hargaJual, p.ppn, p.totalPembelian, p.estimasiLaba].map(esc).join(","));
+      body.push([p.noPembelian, fmtWib(p.tanggal, "dd MMM yyyy, HH:mm"), p.supplier.nama, it.namaProduk, it.satuanNama ?? "", it.qty, it.hargaBeli, it.diskon, it.hargaJual, p.ppn, p.totalPembelian, p.estimasiLaba].map(esc).join(","));
     }
   }
   const blob = new Blob(["\uFEFF", [headers.join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });

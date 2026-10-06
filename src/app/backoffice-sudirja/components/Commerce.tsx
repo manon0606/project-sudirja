@@ -443,7 +443,7 @@ export default function Commerce() {
       const result = await listPesanan({ page: 1, pageSize: 1000, asal: "commerce", search: debouncedSearch, statusPengiriman: statusFilter === "all" ? undefined : statusFilter, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined });
       const headers = ["No. Pesanan", "Tanggal", "Pelanggan", "Telepon", "Alamat", "Metode Bayar", "Status Pengiriman", "Kurir", "Subtotal", "Diskon", "Total"];
       const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-      const body = result.items.map((o) => [o.noPesanan, new Date(o.createdAt).toLocaleString('id-ID'), o.pelanggan?.nama ?? "", o.pelanggan?.telepon ?? "", o.pelanggan?.alamat ?? "", o.metodeBayar, o.statusPengiriman ?? "", o.kurir?.fullName ?? "", o.subtotal, o.diskonAmount, o.total].map(esc).join(","));
+      const body = result.items.map((o) => [o.noPesanan, fmtWib(o.createdAt, "dd MMM yyyy, HH:mm"), o.pelanggan?.nama ?? "", o.pelanggan?.telepon ?? "", o.pelanggan?.alamat ?? "", o.metodeBayar, o.statusPengiriman ?? "", o.kurir?.fullName ?? "", o.subtotal, o.diskonAmount, o.total].map(esc).join(","));
       const blob = new Blob(["\uFEFF", [headers.join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
