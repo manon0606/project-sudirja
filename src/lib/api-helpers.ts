@@ -20,6 +20,15 @@ import type { DashboardErrorCode } from "@/lib/dashboard-types";
 import type { PosErrorCode } from "@/lib/pos-types";
 import { getCurrentAdmin, type CurrentAdmin } from "@/lib/auth";
 import { verifyPosApiKey } from "@/lib/settings-service";
+import { verifyDeviceToken } from "@/lib/device-service";
+
+/** Cek header `X-API-Key`: key global lama (`sk_pos_…`) atau token perangkat (`dev_…`). */
+async function posKeySah(request: Request): Promise<boolean> {
+  const apiKey = request.headers.get("x-api-key");
+  if (!apiKey) return false;
+  if ((await verifyPosApiKey(apiKey)).valid) return true;
+  return verifyDeviceToken(apiKey);
+}
 
 export type ApiErrorCode = AuthErrorCode | ProductErrorCode | StokErrorCode | PromoErrorCode | PesananErrorCode | UserErrorCode | KomisiErrorCode | SettingsErrorCode | OngkirErrorCode | PelangganErrorCode | SupplierErrorCode | KonsinyasiErrorCode | PembelianErrorCode | LaporanErrorCode | DashboardErrorCode | PosErrorCode;
 
@@ -66,8 +75,7 @@ export async function requireAdminOrPosKey(request: Request): Promise<Requester 
   try {
     const admin = await getCurrentAdmin();
     if (admin) return { kind: "admin", admin };
-    const { valid } = await verifyPosApiKey(request.headers.get("x-api-key"));
-    return valid ? { kind: "pos" } : null;
+    return (await posKeySah(request)) ? { kind: "pos" } : null;
   } catch {
     // Sama dengan requireAdmin: DB bermasalah → anggap belum terautentikasi.
     return null;
@@ -81,8 +89,7 @@ export async function requireAdminOrPosKey(request: Request): Promise<Requester 
  */
 export async function isPosRequest(): Promise<boolean> {
   try {
-    const { valid } = await verifyPosApiKey((await headers()).get("x-api-key"));
-    return valid;
+    return posKeySah({ headers: await headers() } as Request);
   } catch {
     return false;
   }
